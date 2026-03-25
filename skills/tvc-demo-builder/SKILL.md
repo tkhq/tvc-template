@@ -45,8 +45,8 @@ Before implementing, identify the demo's target audience and core value proposit
 
 ### Audience Decision
 
-- **Web3 / DeFi clients** (Polymarket, protocols): Emphasize verifiable computation, oracle integrity, fair ordering, tamper-proof settlement
-- **TradFi / Banks** (JP Morgan, institutional): Emphasize compliance auditability, confidential computation, regulatory proof trails
+- **Web3 / DeFi clients** (prediction markets, protocols): Emphasize verifiable computation, oracle integrity, fair ordering, tamper-proof settlement
+- **TradFi / Banks** (institutional clients): Emphasize compliance auditability, confidential computation, regulatory proof trails
 - **Both**: Price oracles, policy-gated signers, sealed-bid auctions work across audiences
 
 ### Demo Architecture Pattern

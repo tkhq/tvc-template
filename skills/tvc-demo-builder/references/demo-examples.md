@@ -76,7 +76,7 @@ reqwest = { workspace = true }
 
 ## Prediction Market Settlement Engine
 
-**Target audience:** Web3, prediction markets (Polymarket, Kalshi)
+**Target audience:** Web3, prediction markets
 
 **Value proposition:** Market resolution logic runs in an enclave. The outcome is provably computed from the stated data sources. No insider can rig results.
 
@@ -196,7 +196,7 @@ async fn sign_transaction(
 
 ## Compliant Trade Execution Gate
 
-**Target audience:** Banks, financial institutions (JP Morgan, Goldman)
+**Target audience:** Banks, financial institutions
 
 **Value proposition:** Every trade passes through the enclave for compliance checks. The enclave produces cryptographic proof that the check occurred, what rules were applied, and the outcome. Auditable, tamper-proof compliance trail.
 
