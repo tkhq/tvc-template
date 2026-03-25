@@ -1,6 +1,6 @@
-# Demo Implementation Examples
+# Application Examples
 
-Concrete endpoint designs for common TVC demo scenarios. Each example shows the route handler pattern, request/response shapes, and key implementation notes.
+Concrete endpoint designs for common TVC application scenarios. Each example shows the route handler pattern, request/response shapes, and key implementation notes.
 
 ## Verifiable Price Oracle
 
@@ -120,7 +120,7 @@ async fn resolve_market(
 
 ### Implementation Notes
 
-- Store market definitions in memory (HashMap) for the demo. No persistent storage in enclaves.
+- Store market definitions in memory (HashMap) for simplicity. No persistent storage in enclaves.
 - Resolution logic must be deterministic: same inputs always produce the same outcome
 - Return all source data alongside the outcome for auditability
 - Consider a "dry run" mode that shows what the resolution would be without finalizing
@@ -279,7 +279,7 @@ GET  /metrics              -> (provided by template)
 
 ### Implementation Notes
 
-- For the demo, bids can be plaintext JSON (simulating encryption). A production version would use the enclave's public key for actual encryption.
+- For simplicity, bids can be plaintext JSON (simulating encryption). A production version would use the enclave's public key for actual encryption.
 - Store auctions and bids in memory (HashMap)
 - Reject bids after the deadline
 - On reveal: sort bids, determine winner, return all bids for transparency

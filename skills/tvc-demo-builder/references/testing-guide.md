@@ -1,6 +1,6 @@
 # Testing Guide
 
-Comprehensive testing patterns for TVC demo applications.
+Comprehensive testing patterns for TVC app applications.
 
 ## Test Hierarchy
 
@@ -118,12 +118,12 @@ Spawns the real server binary, makes real HTTP requests. Tests the full stack in
 **When to use:** Testing the complete request/response cycle, middleware behavior, metrics recording.
 
 ```rust
-// src/e2e/tests/your_demo.rs
+// src/e2e/tests/your_app.rs
 #![allow(missing_docs, clippy::unwrap_used)]
 use e2e::TestArgs;
 
 #[tokio::test]
-async fn test_demo_endpoint_e2e() {
+async fn test_app_endpoint_e2e() {
     async fn test(test_args: TestArgs) {
         let client = reqwest::Client::new();
 
@@ -143,11 +143,11 @@ async fn test_demo_endpoint_e2e() {
 }
 
 #[tokio::test]
-async fn test_metrics_include_demo_endpoint() {
+async fn test_metrics_include_app_endpoint() {
     async fn test(test_args: TestArgs) {
         let client = reqwest::Client::new();
 
-        // Hit the demo endpoint first
+        // Hit the app endpoint first
         client
             .get(format!("{}/your_endpoint", test_args.base_url))
             .send()
@@ -163,7 +163,7 @@ async fn test_metrics_include_demo_endpoint() {
         let body = resp.text().await.unwrap();
         assert!(
             body.contains("path=\"/your_endpoint\""),
-            "demo endpoint should appear in metrics"
+            "app endpoint should appear in metrics"
         );
     }
     e2e::Builder::new().execute(test).await;
@@ -178,10 +178,10 @@ After `make -C src run`:
 # Health check
 curl -s localhost:44020/health | jq
 
-# Your demo endpoint (GET)
+# Your app endpoint (GET)
 curl -s localhost:44020/price/ETH | jq
 
-# Your demo endpoint (POST)
+# Your app endpoint (POST)
 curl -s -X POST localhost:44020/sign \
   -H "Content-Type: application/json" \
   -d '{"amount": 100, "destination": "0xabc..."}' | jq
@@ -194,7 +194,7 @@ curl -s localhost:44020/metrics | grep your_endpoint
 
 ### Testing External API Calls
 
-For demos that fetch external data (price oracles), either:
+For apps that fetch external data (price oracles), either:
 
 1. **Mock at the HTTP level** in unit tests (use `axum::Router` as a mock server)
 2. **Test with real APIs** in e2e tests (accept that they may be flaky)
@@ -226,7 +226,7 @@ fn test_median_even() {
 
 ### Testing Stateful Endpoints
 
-For demos with in-memory state (auctions, policy configs):
+For apps with in-memory state (auctions, policy configs):
 
 ```rust
 #[tokio::test]
