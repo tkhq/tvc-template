@@ -1,0 +1,29 @@
+{
+  "should_trigger": [
+    "Create a new TVC demo for a prediction market client",
+    "Build a price oracle demo on the tvc-template",
+    "Help me set up a new TVC enclave application",
+    "Add an endpoint to the demo that checks compliance rules",
+    "Scaffold a policy-gated signer demo",
+    "I need to build a demo for JP Morgan showing verifiable trade compliance",
+    "How do I add a new route handler to the TVC template?",
+    "Implement a sealed-bid auction demo",
+    "Create a settlement engine demo for Polymarket",
+    "Set up and test a new TVC demo app",
+    "Help me write tests for my TVC demo endpoints",
+    "Build the OCI container for my demo",
+    "Deploy this demo to TVC",
+    "Add reqwest as a dependency and fetch external prices",
+    "Create a web3 demo showing verifiable computation in an enclave"
+  ],
+  "should_not_trigger": [
+    "Create a Turnkey wallet via the API",
+    "Sign a transaction with my Turnkey key",
+    "Set up a policy in my Turnkey organization",
+    "How do I authenticate with the Turnkey API?",
+    "Explain how Rust generics work",
+    "Write a Python script to parse CSV files",
+    "Help me set up a React frontend",
+    "What is the weather in San Francisco?"
+  ]
+}
