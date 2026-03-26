@@ -1,6 +1,6 @@
 # TVC CLI Reference
 
-Complete reference for the `tvc` command-line tool. The CLI supports non-interactive operation for agent-driven workflows via `--dangerous-skip-interactive` on the approve command and cached config state.
+Complete reference for the `tvc` command-line tool. The CLI supports fully autonomous, non-interactive operation for agent-driven workflows and CI/CD pipelines.
 
 ## Installation
 
@@ -8,36 +8,45 @@ Complete reference for the `tvc` command-line tool. The CLI supports non-interac
 cd rust-sdk/tvc && cargo install --path .
 ```
 
-## Output Format
+## Global Flags
 
-The CLI outputs human-readable text, not JSON. To extract IDs programmatically, parse labeled output lines:
+These flags are available on ALL commands:
 
-```bash
-# Example: capture App ID from `tvc app create` output
-OUTPUT=$(tvc app create app.json 2>&1)
-APP_ID=$(echo "$OUTPUT" | grep "App ID:" | awk '{print $NF}')
-OPERATOR_ID=$(echo "$OUTPUT" | grep "Manifest Set Operator IDs:" | awk '{print $NF}')
-```
+| Flag | Env Var | Description |
+|---|---|---|
+| `--json` | `TVC_JSON` | Output results as JSON to stdout (use for programmatic parsing) |
+| `--no-input` | `TVC_NO_INPUT` | Disable all interactive prompts. Fails if input is required. |
+| `--quiet` / `-q` | | Suppress non-essential output |
+| `--api-key-file <PATH>` | `TVC_API_KEY_FILE` | Path to API key JSON file (overrides login config) |
+| `--operator-key-file <PATH>` | `TVC_OPERATOR_KEY_FILE` | Path to operator key JSON file (overrides login config) |
+| `--api-url <URL>` | `TVC_API_URL` | API base URL override |
+| `--org-id <ID>` | `TVC_ORG_ID` | Organization ID override |
 
-Alternatively, read cached IDs from `~/.config/turnkey/tvc.config.toml` after commands complete. The CLI caches `last_created_app_id` and `last_operator_ids` automatically.
+When `--api-key-file`, `--api-url`, and `--org-id` are ALL provided, commands work without running `tvc login` first.
 
 ## Commands
 
 ### tvc login
 
-Authenticate with Turnkey and set up local credentials. This is an interactive process that walks through org creation/selection and key generation.
+Authenticate with Turnkey and set up local credentials.
 
 ```bash
 # Interactive (first-time setup)
 tvc login
 
-# Select an existing org by alias or ID
+# Select existing org
 tvc login --org my-alias
+
+# Fully non-interactive (CI/CD)
+tvc login --no-input --org-id <ORG_UUID> --alias default --api-env prod --skip-api-key-wait
 ```
 
-| Flag | Description |
-|---|---|
-| `--org <ALIAS_OR_ID>` | Select an existing org by alias or ID |
+| Flag | Env Var | Description |
+|---|---|---|
+| `--org <ALIAS_OR_ID>` | | Select an existing org by alias or ID |
+| `--alias <NAME>` | `TVC_ORG_ALIAS` | Alias for the org config (default: "default") |
+| `--api-env <ENV>` | `TVC_API_ENV` | API environment: `prod`, `preprod`, `dev`, `local` |
+| `--skip-api-key-wait` | | Skip the "press Enter" prompt after API key generation |
 
 ### tvc app init
 
@@ -59,13 +68,14 @@ Create a new TVC application from a config file.
 
 ```bash
 tvc app create my-app.json
+
+# With JSON output for parsing
+APP_RESULT=$(tvc --json app create my-app.json)
+APP_ID=$(echo "$APP_RESULT" | jq -r '.app_id')
+OPERATOR_ID=$(echo "$APP_RESULT" | jq -r '.manifest_set_operator_ids[0]')
 ```
 
-| Flag | Description |
-|---|---|
-| `<CONFIG_FILE>` | Path to the app configuration file (JSON) |
-
-**Output includes:** App ID, Name, Manifest Set ID, Manifest Set Operator IDs. These are also cached in `~/.config/turnkey/tvc.config.toml`.
+Returns: app_id, manifest_set_id, manifest_set_operator_ids. The app ID and operator IDs are cached in `~/.config/turnkey/tvc.config.toml` for convenience.
 
 ### tvc app list
 
@@ -76,6 +86,9 @@ tvc app list
 
 # Filter by name
 tvc app list --name my-app
+
+# JSON output
+tvc --json app list
 ```
 
 | Flag | Description |
@@ -92,7 +105,7 @@ tvc deploy init --output my-deploy.json
 
 | Flag | Description |
 |---|---|
-| `-o, --output <PATH>` | Output file path (default: `deploy.json`) |
+| `-o, --output <PATH>` | Output file path |
 
 The `appId` field is auto-filled from the last created app.
 
@@ -105,6 +118,10 @@ tvc deploy create my-deploy.json
 
 # With pull secret for private container images
 tvc deploy create my-deploy.json --pivot-pull-secret ./pull-secret.json
+
+# With JSON output
+DEPLOY_RESULT=$(tvc --json deploy create my-deploy.json)
+DEPLOY_ID=$(echo "$DEPLOY_RESULT" | jq -r '.deployment_id')
 ```
 
 | Flag | Description |
@@ -112,27 +129,25 @@ tvc deploy create my-deploy.json --pivot-pull-secret ./pull-secret.json
 | `<CONFIG_FILE>` | Path to the deployment configuration file (JSON) |
 | `--pivot-pull-secret <PATH>` | Path to unencrypted pull secret file (auto-encrypted by CLI) |
 
-**Output includes:** Deployment ID, App ID.
-
 ### tvc deploy approve
 
 Cryptographically approve a deployment manifest.
 
 ```bash
-# Interactive (reviews each manifest section with prompts)
+# Interactive (reviews each manifest section)
 tvc deploy approve --deploy-id <DEPLOYMENT_ID>
 
-# Non-interactive (skips all manifest review prompts)
-tvc deploy approve \
+# Fully autonomous (skips all prompts)
+tvc --json --no-input deploy approve \
   --deploy-id <DEPLOYMENT_ID> \
   --operator-id <OPERATOR_ID> \
-  --dangerous-skip-interactive
+  --yes
 
 # Dry run (review without generating approval)
 tvc deploy approve --deploy-id <DEPLOYMENT_ID> --dry-run
 
 # Generate approval without posting to API
-tvc deploy approve --deploy-id <DEPLOYMENT_ID> --dangerous-skip-interactive --skip-post
+tvc deploy approve --deploy-id <DEPLOYMENT_ID> --yes --skip-post
 ```
 
 | Flag | Env Var | Description |
@@ -142,7 +157,7 @@ tvc deploy approve --deploy-id <DEPLOYMENT_ID> --dangerous-skip-interactive --sk
 | `--manifest-id <ID>` | `TVC_MANIFEST_ID` | Manifest UUID (required with `--manifest`) |
 | `--operator-id <ID>` | `TVC_OPERATOR_ID` | Operator UUID (auto-used from config if omitted) |
 | `--operator-seed <PATH>` | | Custom operator key file |
-| `--dangerous-skip-interactive` | | Skip all interactive manifest review prompts |
+| `-y, --yes` | | Skip all interactive approval prompts |
 | `--dry-run` | | Review manifest without generating approval |
 | `--skip-post` | | Don't post approval to API |
 | `-o, --output <PATH>` | | Write approval to file |
@@ -153,13 +168,14 @@ Get the status of a deployment.
 
 ```bash
 tvc deploy status --deploy-id <DEPLOYMENT_ID>
+
+# JSON output
+STAGE=$(tvc --json deploy status --deploy-id <DEPLOY_ID> | jq -r '.stage')
 ```
 
 | Flag | Env Var | Description |
 |---|---|---|
 | `-d, --deploy-id <ID>` | `TVC_DEPLOY_ID` | Deployment ID |
-
-**Output includes:** Deployment ID, App ID, Manifest ID, QOS Version, Stage, Pivot Container details.
 
 ## Full Autonomous Deployment Pipeline
 
@@ -167,24 +183,29 @@ tvc deploy status --deploy-id <DEPLOYMENT_ID>
 #!/bin/bash
 set -euo pipefail
 
-# Prerequisite: run `tvc login` once interactively to set up credentials
+# Option A: Use existing login
+# (run `tvc login` once interactively, then all subsequent commands work)
+
+# Option B: Override flags (no login needed)
+export TVC_API_KEY_FILE="/path/to/api_key.json"
+export TVC_API_URL="https://api.turnkey.com"
+export TVC_ORG_ID="your-org-uuid"
+export TVC_JSON=true
 
 # 1. Create the app
-OUTPUT=$(tvc app create app-config.json 2>&1)
-echo "$OUTPUT"
-APP_ID=$(echo "$OUTPUT" | grep "App ID:" | awk '{print $NF}')
-OPERATOR_ID=$(echo "$OUTPUT" | grep "Manifest Set Operator IDs:" | awk '{print $NF}')
+APP_RESULT=$(tvc app create app-config.json)
+APP_ID=$(echo "$APP_RESULT" | jq -r '.app_id')
+OPERATOR_ID=$(echo "$APP_RESULT" | jq -r '.manifest_set_operator_ids[0]')
 
 # 2. Create the deployment
-OUTPUT=$(tvc deploy create deploy-config.json 2>&1)
-echo "$OUTPUT"
-DEPLOY_ID=$(echo "$OUTPUT" | grep "Deployment ID:" | awk '{print $NF}')
+DEPLOY_RESULT=$(tvc deploy create deploy-config.json)
+DEPLOY_ID=$(echo "$DEPLOY_RESULT" | jq -r '.deployment_id')
 
 # 3. Approve non-interactively
-tvc deploy approve \
+tvc --no-input deploy approve \
   --deploy-id "$DEPLOY_ID" \
   --operator-id "$OPERATOR_ID" \
-  --dangerous-skip-interactive
+  --yes
 
 # 4. Verify status (enclave may take 1-2 minutes to provision)
 tvc deploy status --deploy-id "$DEPLOY_ID"
@@ -212,12 +233,18 @@ The CLI caches useful IDs for convenience:
 - `last_created_app_id`: Auto-filled in `deploy init` templates
 - `last_operator_ids`: Auto-used in `deploy approve` when `--operator-id` is omitted
 
-### Environment Variables
-
-Some subcommand flags accept environment variable overrides:
+## Environment Variables
 
 | Variable | Used By | Description |
 |---|---|---|
+| `TVC_JSON` | Global | Enable JSON output |
+| `TVC_NO_INPUT` | Global | Disable interactive prompts |
+| `TVC_API_KEY_FILE` | Global | Path to API key JSON file |
+| `TVC_OPERATOR_KEY_FILE` | Global | Path to operator key JSON file |
+| `TVC_API_URL` | Global | API base URL |
+| `TVC_ORG_ID` | Global, Login | Organization ID |
+| `TVC_ORG_ALIAS` | Login | Organization alias |
+| `TVC_API_ENV` | Login | API environment name |
 | `TVC_DEPLOY_ID` | Deploy approve/status | Deployment ID |
 | `TVC_MANIFEST_ID` | Deploy approve | Manifest ID |
 | `TVC_OPERATOR_ID` | Deploy approve | Operator ID |

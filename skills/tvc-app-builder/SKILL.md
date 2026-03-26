@@ -2,7 +2,7 @@
 name: tvc-app-builder
 description: "Builds and deploys TVC (Turnkey Verifiable Cloud) enclave applications on the tvc-template. Covers Rust endpoint implementation, Axum route handlers, unit and e2e testing, OCI container builds, and fully autonomous TVC deployment via the tvc CLI. Use when asked to 'create a TVC app', 'build a TVC application', 'add a TVC endpoint', 'add a route handler to the TVC template', 'write tests for TVC app', 'scaffold a TVC service', 'deploy to TVC', 'tvc login', 'tvc deploy', 'approve a TVC deployment', 'TVC deployment fields', 'deploy via TVC dashboard', 'TVC deployment 404', 'set up TVC CI/CD', or 'build TVC container'. Do NOT use for Turnkey wallet API operations (use managing-wallets-api), policy rule authoring (use managing-policies-api), or general Rust questions unrelated to TVC."
 metadata:
-  version: "3.1.0"
+  version: "3.2.0"
   author: turnkey
   tags: ["tvc", "enclave", "solutions-engineering", "workflow", "deployment"]
 ---
@@ -19,7 +19,7 @@ Build a TVC enclave application by reading the current project structure, adding
 - Docker with buildx plugin (`brew install docker-buildx`, then add `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]` to `~/.docker/config.json`)
 - The TVC CLI (`tvc`), installed from github.com/tkhq/rust-sdk: `cd rust-sdk/tvc && cargo install --path .`
 - A container registry account (ghcr.io recommended). Container images MUST be public or deployed with a pull secret.
-- `jq` for parsing JSON config files and API responses
+- `jq` for parsing JSON CLI output
 - `gh` CLI for GitHub authentication (used to obtain ghcr.io login tokens)
 
 ## Understanding the Project
@@ -169,7 +169,7 @@ For detailed testing patterns, see [references/testing-guide.md](references/test
 
 ## Building and Deploying (Autonomous CLI Workflow)
 
-The TVC CLI supports non-interactive operation. The `deploy approve` command accepts `--dangerous-skip-interactive` to skip manual manifest review. CLI output is human-readable text (not JSON), so parse IDs from output lines or read cached values from `~/.config/turnkey/tvc.config.toml`. For the complete CLI reference, see [references/tvc-cli-guide.md](references/tvc-cli-guide.md).
+The TVC CLI supports fully non-interactive operation using `--json`, `--no-input`, and `--yes` flags. All flags have corresponding `TVC_*` environment variables. For the complete CLI reference, see [references/tvc-cli-guide.md](references/tvc-cli-guide.md).
 
 ### Step 1: Build and test
 
@@ -228,18 +228,19 @@ sha256sum ./binary
 ### Step 5: Login (if not already authenticated)
 
 ```bash
-# Interactive (first-time setup, walks through org creation and key generation)
+# Interactive (first-time setup)
 tvc login
 
-# Select an existing org by alias or ID
-tvc login --org my-alias
+# Non-interactive (CI/CD or agent use)
+tvc login --no-input --org-id <ORG_UUID> --alias default --api-env prod --skip-api-key-wait
+
+# Or bypass login entirely with override flags:
+export TVC_API_KEY_FILE=/path/to/api_key.json
+export TVC_API_URL=https://api.turnkey.com
+export TVC_ORG_ID=<your-org-uuid>
 ```
 
-Check `~/.config/turnkey/tvc.config.toml` to verify login state and active org.
-
-### Step 6: Create app, deploy, and approve
-
-The CLI outputs human-readable text. Parse IDs from the output lines, or read them from the cached config at `~/.config/turnkey/tvc.config.toml`.
+### Step 6: Create app, deploy, and approve (fully autonomous)
 
 ```bash
 # Create the app config
@@ -247,11 +248,10 @@ tvc app init --output app.json
 # Fill in: name and manifestSetParams.name
 # The operator and quorum keys are auto-populated from login
 
-# Create the app (output includes App ID and Operator IDs)
-tvc app create app.json
-# Parse from output: "App ID: <uuid>" and "Manifest Set Operator IDs: <uuid>"
-APP_ID=$(grep "App ID:" <<< "$OUTPUT" | awk '{print $NF}')
-OPERATOR_ID=$(grep "Manifest Set Operator IDs:" <<< "$OUTPUT" | awk '{print $NF}')
+# Create the app and capture IDs
+APP_RESULT=$(tvc --json app create app.json)
+APP_ID=$(echo "$APP_RESULT" | jq -r '.app_id')
+OPERATOR_ID=$(echo "$APP_RESULT" | jq -r '.manifest_set_operator_ids[0]')
 
 # Create the deployment config (appId is auto-filled from last created app)
 tvc deploy init --output deploy.json
@@ -260,18 +260,18 @@ tvc deploy init --output deploy.json
 # healthCheckType (TVC_HEALTH_CHECK_TYPE_HTTP), qosVersion (v2026.2.6)
 # REMOVE pivotContainerEncryptedPullSecret field entirely if image is public
 
-# Create the deployment
-tvc deploy create deploy.json
-# Parse from output: "Deployment ID: <uuid>"
+# Create the deployment and capture ID
+DEPLOY_RESULT=$(tvc --json deploy create deploy.json)
+DEPLOY_ID=$(echo "$DEPLOY_RESULT" | jq -r '.deployment_id')
 
-# Approve non-interactively (skips manifest review prompts)
-tvc deploy approve \
+# Approve non-interactively
+tvc --json --no-input deploy approve \
   --deploy-id "$DEPLOY_ID" \
   --operator-id "$OPERATOR_ID" \
-  --dangerous-skip-interactive
+  --yes
 
 # Check status (wait 1-2 minutes after approval for enclave provisioning)
-tvc deploy status --deploy-id "$DEPLOY_ID"
+tvc --json deploy status --deploy-id "$DEPLOY_ID"
 ```
 
 ### Step 7: Access the deployed app
@@ -312,7 +312,7 @@ For troubleshooting deployment issues, see [references/deployment-troubleshootin
 - When renaming the binary, update all references: Cargo.toml, Containerfile, Makefile, e2e test harness, and CI workflows
 - Use `rustls-tls` for HTTP clients (no system SSL in enclaves)
 - Design for stateless, deterministic computation. Avoid relying on in-memory state across requests.
-- Parse CLI output by grepping for labeled lines (e.g. `grep "App ID:"`) or read cached IDs from `~/.config/turnkey/tvc.config.toml`
+- Always use `--json` flag when parsing TVC CLI output programmatically
 - Always pin container images by SHA256 digest, never by mutable tag alone
 
 ## Related Resources

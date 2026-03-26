@@ -102,15 +102,13 @@ Then add to `~/.docker/config.json`:
 
 ## Interactive Prompts Blocking Automation
 
-**Symptom:** `tvc deploy approve` hangs waiting for user input in a non-interactive context.
+**Symptom:** CLI command hangs waiting for user input in a non-interactive context.
 
-**Fix:** Use `--dangerous-skip-interactive` on the `deploy approve` command to skip all manifest review prompts:
-```bash
-tvc deploy approve \
-  --deploy-id <DEPLOY_ID> \
-  --operator-id <OPERATOR_ID> \
-  --dangerous-skip-interactive
-```
+**Fix:** Use the automation flags:
+- `--no-input`: Fails instead of prompting (global flag, available on all commands)
+- `--yes` / `-y`: Auto-approves all manifest sections (deploy approve)
+- `--skip-api-key-wait`: Skips "press Enter" prompt (login)
+- Environment variables: Set `TVC_NO_INPUT=true` globally
 
 ## Stateful Endpoint Inconsistency
 
