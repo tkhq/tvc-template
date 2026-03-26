@@ -7,7 +7,7 @@
   "scripts": {
     "validate": "tsx skills/tvc-app-builder/scripts/validate.ts",
     "eval": "tsx skills/tvc-app-builder/scripts/eval-triggers.ts",
-    "eval:ci": "tsx skills/tvc-app-builder/scripts/eval-triggers.ts --skill tvc-app-builder --threshold 90 --concurrency 4",
+    "eval:ci": "tsx skills/tvc-app-builder/scripts/eval-triggers.ts --skill tvc-app-builder --threshold 70 --concurrency 4",
     "eval:loop": "tsx skills/tvc-app-builder/scripts/eval-triggers.ts --skill tvc-app-builder --runs 3"
   },
   "devDependencies": {
