@@ -428,6 +428,7 @@ dependencies = [
  "clap",
  "http-body-util",
  "metrics",
+ "serde",
  "serde_json",
  "tokio",
  "tower",

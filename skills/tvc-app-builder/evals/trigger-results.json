@@ -1,0 +1,201 @@
+{
+  "skill": "tvc-app-builder",
+  "timestamp": "2026-03-26T03:47:53.667Z",
+  "runs": 1,
+  "threshold": 90,
+  "results": [
+    {
+      "query": "Create a new TVC application for a prediction market client",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Build a price oracle app on the tvc-template",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Help me set up a new TVC enclave application",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Add an endpoint that checks compliance rules",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Scaffold a policy-gated signer service",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "I need to build an app for a bank showing verifiable trade compliance",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "How do I add a route handler to the TVC template?",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Implement a sealed-bid auction service",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Create a settlement engine for a prediction market client",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Set up and test a new TVC app",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Help me write tests for my TVC app",
+      "expected": true,
+      "triggered": false,
+      "pass": false
+    },
+    {
+      "query": "Build the TVC container for my app",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Deploy this to TVC",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Create a web3 app showing verifiable computation in an enclave",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "How do I deploy via the TVC dashboard?",
+      "expected": true,
+      "triggered": false,
+      "pass": false
+    },
+    {
+      "query": "What fields do I need for a TVC deployment?",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Run tvc login to set up my credentials",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "How do I approve a TVC deployment?",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Create a timestamp notary service on TVC",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Build a TVC app with shared state",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Deploy this TVC app autonomously",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Set up CI/CD for TVC deployment",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "My TVC deployment shows Live but returns 404",
+      "expected": true,
+      "triggered": true,
+      "pass": true
+    },
+    {
+      "query": "Create a Turnkey wallet via the API",
+      "expected": false,
+      "triggered": false,
+      "pass": true
+    },
+    {
+      "query": "Sign a transaction with my Turnkey key",
+      "expected": false,
+      "triggered": false,
+      "pass": true
+    },
+    {
+      "query": "Set up a policy in my Turnkey organization",
+      "expected": false,
+      "triggered": false,
+      "pass": true
+    },
+    {
+      "query": "How do I authenticate with the Turnkey API?",
+      "expected": false,
+      "triggered": false,
+      "pass": true
+    },
+    {
+      "query": "Explain how Rust generics work",
+      "expected": false,
+      "triggered": false,
+      "pass": true
+    },
+    {
+      "query": "Write a Python script to parse CSV files",
+      "expected": false,
+      "triggered": false,
+      "pass": true
+    },
+    {
+      "query": "Help me set up a React frontend",
+      "expected": false,
+      "triggered": false,
+      "pass": true
+    },
+    {
+      "query": "What is the weather in San Francisco?",
+      "expected": false,
+      "triggered": false,
+      "pass": true
+    }
+  ],
+  "summary": {
+    "total": 31,
+    "passed": 29,
+    "accuracy": 93.5,
+    "triggerAccuracy": 91.3,
+    "falsePositiveRate": 0
+  }
+}

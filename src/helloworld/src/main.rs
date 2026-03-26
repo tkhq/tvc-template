@@ -19,7 +19,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metrics_layer = MetricsLayer::builder().namespace("tvc").build()?;
     let collector = metrics_layer.collector();
 
-    let app = router::router()
+    let shared_state = router::SharedState::default();
+
+    let app = router::router(shared_state)
         .layer(metrics_layer)
         .route("/metrics", metrics::handler(collector));
 

@@ -1,0 +1,83 @@
+[
+  {
+    "skills": ["tvc-app-builder"],
+    "query": "Create a price oracle app that fetches ETH prices from multiple sources",
+    "expected_behavior": [
+      "Reads the current project structure before making changes",
+      "Adds reqwest dependency to workspace Cargo.toml and binary Cargo.toml",
+      "Creates a GET /price/{asset} route handler",
+      "Implements fetching from multiple price sources",
+      "Uses proper error handling (no unwrap/expect in production code)",
+      "Computes median or aggregated price",
+      "Returns JSON with asset, price, source count, and timestamp",
+      "Designs the endpoint as stateless (no in-memory storage of prices)"
+    ]
+  },
+  {
+    "skills": ["tvc-app-builder"],
+    "query": "Deploy this app to TVC autonomously",
+    "expected_behavior": [
+      "Runs tests and lint first",
+      "Builds the OCI container with make",
+      "Pushes to a container registry",
+      "Verifies the image is publicly pullable before deploying",
+      "Computes the binary digest (not container digest)",
+      "Uses --json flag to parse tvc CLI output with jq",
+      "Creates app with tvc --json app create",
+      "Creates deployment with tvc --json deploy create",
+      "Approves with --yes and --no-input flags (no interactive prompts)",
+      "Checks deployment status",
+      "Constructs the app URL from the App ID"
+    ]
+  },
+  {
+    "skills": ["tvc-app-builder"],
+    "query": "My TVC deployment shows Live but all endpoints return 404",
+    "expected_behavior": [
+      "Checks if the container image is publicly accessible",
+      "Verifies the correct app URL domain for the environment",
+      "Checks the api_base_url in tvc.config.toml to determine the right domain",
+      "Suggests making the ghcr.io package public or using a pull secret",
+      "Provides the command to verify image accessibility"
+    ]
+  },
+  {
+    "skills": ["tvc-app-builder"],
+    "query": "Build a timestamp notary service with shared state",
+    "expected_behavior": [
+      "Reads the current project structure before making changes",
+      "Creates POST /notarize, GET /verify/{receipt_id}, GET /stats endpoints",
+      "Uses Arc<RwLock<...>> for shared state management",
+      "Warns about multi-instance state inconsistency in TVC",
+      "Explains that each enclave instance has independent memory",
+      "Recommends stateless design as alternative",
+      "Writes unit tests using Tower oneshot",
+      "Writes e2e tests using the Builder harness",
+      "Runs make -C src test and make -C src lint to verify"
+    ]
+  },
+  {
+    "skills": ["tvc-app-builder"],
+    "query": "Set up CI/CD for deploying to TVC",
+    "expected_behavior": [
+      "Shows how to use TVC_* environment variables to bypass login",
+      "Uses --json, --no-input, and --yes flags for full automation",
+      "Parses app_id and operator_id from JSON output with jq",
+      "Includes the full pipeline: build, push, deploy create, deploy approve",
+      "Mentions the --pivot-pull-secret option for private images"
+    ]
+  },
+  {
+    "skills": ["tvc-app-builder"],
+    "query": "How do I deploy my app to TVC?",
+    "expected_behavior": [
+      "Explains both Dashboard and CLI deployment paths",
+      "Shows the autonomous CLI workflow with --json and --yes flags",
+      "Describes the deployment fields (container URL, executable path, args, ports, digest)",
+      "Distinguishes between binary digest and container image digest",
+      "Explains the approval step and how to skip interactive prompts",
+      "Mentions the app URL format (app-<UUID>.turnkey.cloud)",
+      "Warns about private container images on ghcr.io"
+    ]
+  }
+]
