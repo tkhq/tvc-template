@@ -102,13 +102,15 @@ Then add to `~/.docker/config.json`:
 
 ## Interactive Prompts Blocking Automation
 
-**Symptom:** CLI command hangs waiting for user input in a non-interactive context.
+**Symptom:** `tvc deploy approve` hangs waiting for user input in a non-interactive context.
 
-**Fix:** Use the automation flags:
-- `--no-input`: Fails instead of prompting (global flag)
-- `--yes` / `-y`: Auto-approves all manifest sections (deploy approve)
-- `--skip-api-key-wait`: Skips "press Enter" prompt (login)
-- Environment variables: Set `TVC_NO_INPUT=true` globally
+**Fix:** Use `--dangerous-skip-interactive` on the `deploy approve` command to skip all manifest review prompts:
+```bash
+tvc deploy approve \
+  --deploy-id <DEPLOY_ID> \
+  --operator-id <OPERATOR_ID> \
+  --dangerous-skip-interactive
+```
 
 ## Stateful Endpoint Inconsistency
 
@@ -118,13 +120,20 @@ Then add to `~/.docker/config.json`:
 
 **This is expected behavior, not a bug.** Design your app for stateless, deterministic computation. The enclave's value is the attested computation, not storage. See the "Designing for Enclaves" section in SKILL.md.
 
+## Enclave Provisioning Delay (404 immediately after approval)
+
+**Symptom:** `tvc deploy status` shows "Live" and the image is confirmed public, but the app URL returns `404 page not found` (plain text) immediately after approval.
+
+**Cause:** The enclave needs time to pull the container image, boot, and pass health checks. This is normal and typically takes 1-2 minutes after approval.
+
+**Fix:** Wait and retry. The `404 page not found` from the ingress proxy will be replaced by your app's responses once the enclave is ready. If the 404 persists beyond 5 minutes, investigate other causes below.
+
 ## Deployment Status Says "Live" But App Is Not Responding
 
-**Symptom:** `tvc deploy status` shows "Live" but the app URL returns errors.
+**Symptom:** `tvc deploy status` shows "Live" but the app URL returns errors persistently (beyond initial provisioning delay).
 
 **Possible causes:**
-1. Container image is private (see above)
-2. Wrong URL domain for the environment (see above)
-3. The enclave is still provisioning (wait 1-2 minutes after approval)
-4. Health check configuration mismatch (ensure `healthCheckPort` matches the port your app listens on, and `/health` returns 200)
-5. Binary args are wrong (verify `pivotArgs` matches what your app expects)
+1. Container image is private (see "Container Image Is Private" above)
+2. Wrong URL domain for the environment (see "Wrong App URL Domain" above)
+3. Health check configuration mismatch (ensure `healthCheckPort` matches the port your app listens on, and `/health` returns 200)
+4. Binary args are wrong (verify `pivotArgs` matches what your app expects, e.g. `["--host", "0.0.0.0", "--port", "3000"]`)

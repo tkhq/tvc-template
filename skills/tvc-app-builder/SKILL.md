@@ -2,7 +2,7 @@
 name: tvc-app-builder
 description: "Builds and deploys TVC (Turnkey Verifiable Cloud) enclave applications on the tvc-template. Covers Rust endpoint implementation, Axum route handlers, unit and e2e testing, OCI container builds, and fully autonomous TVC deployment via the tvc CLI. Use when asked to 'create a TVC app', 'build a TVC application', 'add a TVC endpoint', 'add a route handler to the TVC template', 'write tests for TVC app', 'scaffold a TVC service', 'deploy to TVC', 'tvc login', 'tvc deploy', 'approve a TVC deployment', 'TVC deployment fields', 'deploy via TVC dashboard', 'TVC deployment 404', 'set up TVC CI/CD', or 'build TVC container'. Do NOT use for Turnkey wallet API operations (use managing-wallets-api), policy rule authoring (use managing-policies-api), or general Rust questions unrelated to TVC."
 metadata:
-  version: "3.0.0"
+  version: "3.1.0"
   author: turnkey
   tags: ["tvc", "enclave", "solutions-engineering", "workflow", "deployment"]
 ---
@@ -19,7 +19,8 @@ Build a TVC enclave application by reading the current project structure, adding
 - Docker with buildx plugin (`brew install docker-buildx`, then add `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]` to `~/.docker/config.json`)
 - The TVC CLI (`tvc`), installed from github.com/tkhq/rust-sdk: `cd rust-sdk/tvc && cargo install --path .`
 - A container registry account (ghcr.io recommended). Container images MUST be public or deployed with a pull secret.
-- `jq` for parsing JSON CLI output
+- `jq` for parsing JSON config files and API responses
+- `gh` CLI for GitHub authentication (used to obtain ghcr.io login tokens)
 
 ## Understanding the Project
 
@@ -168,7 +169,7 @@ For detailed testing patterns, see [references/testing-guide.md](references/test
 
 ## Building and Deploying (Autonomous CLI Workflow)
 
-The TVC CLI supports fully non-interactive operation using `--json`, `--no-input`, and `--yes` flags. All flags have corresponding `TVC_*` environment variables. For the complete CLI reference, see [references/tvc-cli-guide.md](references/tvc-cli-guide.md).
+The TVC CLI supports non-interactive operation. The `deploy approve` command accepts `--dangerous-skip-interactive` to skip manual manifest review. CLI output is human-readable text (not JSON), so parse IDs from output lines or read cached values from `~/.config/turnkey/tvc.config.toml`. For the complete CLI reference, see [references/tvc-cli-guide.md](references/tvc-cli-guide.md).
 
 ### Step 1: Build and test
 
@@ -185,24 +186,31 @@ make out/<binary_name>/index.json
 
 ### Step 3: Push to a PUBLIC container registry
 
-TVC infrastructure must be able to pull the container image. Images on ghcr.io are private by default. Either make the package public in GitHub package settings, or provide a pull secret during deployment.
+TVC infrastructure must be able to pull the container image. Images on ghcr.io are private by default. You MUST make the package public in GitHub package settings before the enclave can pull it, or provide a pull secret during deployment.
 
-To verify an image is publicly pullable:
+**Push steps:**
+```bash
+# Authenticate to ghcr.io (use gh CLI token)
+gh auth token | docker login ghcr.io --username <github_user> --password-stdin
+
+# Load and push
+docker load -i <(tar -cf - -C out/<binary_name> .)
+docker tag <local_tag> ghcr.io/<user>/<repo>:latest
+docker push ghcr.io/<user>/<repo>:latest
+# Capture the digest from push output (sha256:...)
+```
+
+**Make the package public (required unless using pull secret):**
+Go to `https://github.com/users/<USERNAME>/packages/container/<PACKAGE>/settings`, scroll to "Danger Zone", click "Change visibility", select "Public". This cannot be done programmatically for user-scoped packages.
+
+**Verify an image is publicly pullable:**
 ```bash
 TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:USER/REPO:pull" | jq -r '.token')
 curl -s -o /dev/null -w "%{http_code}" \
   "https://ghcr.io/v2/USER/REPO/manifests/sha256:DIGEST" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Accept: application/vnd.oci.image.manifest.v1+json"
-# Must return 200. If 401, the image is private.
-```
-
-Push steps:
-```bash
-docker load -i <(tar -cf - -C out/<binary_name> .)
-docker tag <local_tag> ghcr.io/<user>/<repo>:latest
-docker push ghcr.io/<user>/<repo>:latest
-# Capture the digest from push output (sha256:...)
+# Must return 200. If 401, the image is still private.
 ```
 
 ### Step 4: Compute the binary digest
@@ -220,59 +228,62 @@ sha256sum ./binary
 ### Step 5: Login (if not already authenticated)
 
 ```bash
-# Interactive (first-time setup)
+# Interactive (first-time setup, walks through org creation and key generation)
 tvc login
 
-# Non-interactive (CI/CD or agent use)
-tvc login --no-input --org-id <ORG_UUID> --alias default --api-env prod --skip-api-key-wait
-
-# Or bypass login entirely with override flags:
-export TVC_API_KEY_FILE=/path/to/api_key.json
-export TVC_API_URL=https://api.turnkey.com
-export TVC_ORG_ID=<your-org-uuid>
+# Select an existing org by alias or ID
+tvc login --org my-alias
 ```
 
-### Step 6: Create app, deploy, and approve (fully autonomous)
+Check `~/.config/turnkey/tvc.config.toml` to verify login state and active org.
+
+### Step 6: Create app, deploy, and approve
+
+The CLI outputs human-readable text. Parse IDs from the output lines, or read them from the cached config at `~/.config/turnkey/tvc.config.toml`.
 
 ```bash
 # Create the app config
 tvc app init --output app.json
-# Fill in: name, verify operator key and quorum key
+# Fill in: name and manifestSetParams.name
+# The operator and quorum keys are auto-populated from login
 
-# Create the app and capture IDs
-APP_RESULT=$(tvc --json app create app.json)
-APP_ID=$(echo "$APP_RESULT" | jq -r '.app_id')
-OPERATOR_ID=$(echo "$APP_RESULT" | jq -r '.manifest_set_operator_ids[0]')
+# Create the app (output includes App ID and Operator IDs)
+tvc app create app.json
+# Parse from output: "App ID: <uuid>" and "Manifest Set Operator IDs: <uuid>"
+APP_ID=$(grep "App ID:" <<< "$OUTPUT" | awk '{print $NF}')
+OPERATOR_ID=$(grep "Manifest Set Operator IDs:" <<< "$OUTPUT" | awk '{print $NF}')
 
-# Create the deployment config
+# Create the deployment config (appId is auto-filled from last created app)
 tvc deploy init --output deploy.json
 # Fill in: pivotContainerImageUrl (with @sha256:), pivotPath, pivotArgs,
 # expectedPivotDigest, publicIngressPort (3000), healthCheckPort (3000),
 # healthCheckType (TVC_HEALTH_CHECK_TYPE_HTTP), qosVersion (v2026.2.6)
-# REMOVE pivotContainerEncryptedPullSecret if image is public
+# REMOVE pivotContainerEncryptedPullSecret field entirely if image is public
 
-# Create the deployment and capture ID
-DEPLOY_RESULT=$(tvc --json deploy create deploy.json)
-DEPLOY_ID=$(echo "$DEPLOY_RESULT" | jq -r '.deployment_id')
+# Create the deployment
+tvc deploy create deploy.json
+# Parse from output: "Deployment ID: <uuid>"
 
-# Approve non-interactively
-tvc --json --no-input deploy approve \
+# Approve non-interactively (skips manifest review prompts)
+tvc deploy approve \
   --deploy-id "$DEPLOY_ID" \
   --operator-id "$OPERATOR_ID" \
-  --yes
+  --dangerous-skip-interactive
 
-# Check status
-tvc --json deploy status --deploy-id "$DEPLOY_ID"
+# Check status (wait 1-2 minutes after approval for enclave provisioning)
+tvc deploy status --deploy-id "$DEPLOY_ID"
 ```
 
 ### Step 7: Access the deployed app
 
-Production apps are accessible at:
-```
-https://app-<APP_UUID>.turnkey.cloud
-```
+The app URL depends on the API environment you authenticated against:
 
-The app URL is constructed from the App ID. TVC automatically provisions TLS and network ingress.
+| Environment | App URL Pattern |
+|---|---|
+| Production | `https://app-<APP_UUID>.turnkey.cloud` |
+| Dev | `https://app-<APP_UUID>.tvc.dev.turnkey.engineering` |
+
+Check `api_base_url` in `~/.config/turnkey/tvc.config.toml` to determine which environment you are using. TVC automatically provisions TLS and network ingress. The enclave may take 1-2 minutes after approval before it begins responding (a `404 page not found` from the ingress proxy during this window is normal).
 
 ### Deployment configuration fields
 
@@ -301,7 +312,7 @@ For troubleshooting deployment issues, see [references/deployment-troubleshootin
 - When renaming the binary, update all references: Cargo.toml, Containerfile, Makefile, e2e test harness, and CI workflows
 - Use `rustls-tls` for HTTP clients (no system SSL in enclaves)
 - Design for stateless, deterministic computation. Avoid relying on in-memory state across requests.
-- Always use `--json` flag when parsing TVC CLI output programmatically
+- Parse CLI output by grepping for labeled lines (e.g. `grep "App ID:"`) or read cached IDs from `~/.config/turnkey/tvc.config.toml`
 - Always pin container images by SHA256 digest, never by mutable tag alone
 
 ## Related Resources
