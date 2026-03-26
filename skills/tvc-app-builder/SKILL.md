@@ -1,6 +1,6 @@
 ---
 name: tvc-app-builder
-description: "Builds and deploys TVC (Turnkey Verifiable Cloud) enclave applications on the tvc-template. Covers Rust endpoint implementation, Axum route handlers, unit and e2e testing, OCI container builds, and fully autonomous TVC deployment via the tvc CLI. Use when asked to 'create a TVC app', 'build a TVC application', 'add a TVC endpoint', 'add a route handler to the TVC template', 'write tests for TVC app', 'scaffold a TVC service', 'deploy to TVC', 'tvc login', 'tvc deploy', 'approve a TVC deployment', 'TVC deployment fields', 'deploy via TVC dashboard', 'TVC deployment 404', 'set up TVC CI/CD', or 'build TVC container'. Do NOT use for Turnkey wallet API operations (use managing-wallets-api), policy rule authoring (use managing-policies-api), or general Rust questions unrelated to TVC."
+description: "Builds and deploys TVC (Turnkey Verifiable Cloud) enclave applications on the tvc-template. Covers Rust endpoints, Axum route handlers, testing, OCI container builds, TVC CLI deployment, and calling the Turnkey API from TVC apps. Use when asked to create/build/deploy a TVC app, add TVC endpoints or route handlers, write TVC tests, run tvc login/deploy/approve, fix TVC deployment 404, set up TVC CI/CD, build TVC containers, build sealed-bid auctions or settlement engines or prediction markets on TVC, call Turnkey API from TVC, or stamp Turnkey requests in Rust for TVC. Do NOT use for signing transactions via Turnkey API (use signing-transactions-api), creating wallets (use managing-wallets-api), managing policies (use managing-policies-api), standalone Turnkey API auth (use stamping-api), or general Rust unrelated to TVC."
 metadata:
   version: "3.2.0"
   author: turnkey
@@ -59,7 +59,7 @@ The enclave's value is proving *what computation happened*, not storing results.
 - Client stores results, not the enclave (return signed/attested data the client can verify later)
 - If state is needed, accept it as ephemeral per-instance
 
-For concrete endpoint designs, see [references/app-examples.md](references/app-examples.md).
+For concrete endpoint designs, see [references/app-examples.md](references/app-examples.md). For patterns on calling the Turnkey API from TVC apps or deployment scripts (user management, stamping, key generation), see [references/turnkey-api-integration.md](references/turnkey-api-integration.md).
 
 ## Planning the Application
 
@@ -314,6 +314,14 @@ For troubleshooting deployment issues, see [references/deployment-troubleshootin
 - Design for stateless, deterministic computation. Avoid relying on in-memory state across requests.
 - Always use `--json` flag when parsing TVC CLI output programmatically
 - Always pin container images by SHA256 digest, never by mutable tag alone
+
+## Related Skills
+
+- `stamping-api` for constructing X-Stamp authentication headers manually
+- `managing-users-api` for user lifecycle, API keys, and user tag management
+- `managing-wallets-api` for wallet creation and address derivation
+- `signing-transactions-api` for signing transactions
+- `managing-policies-api` for access control and governance
 
 ## Related Resources
 
