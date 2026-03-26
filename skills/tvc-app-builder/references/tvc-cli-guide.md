@@ -18,7 +18,6 @@ These flags are available on ALL commands:
 | `--no-input` | `TVC_NO_INPUT` | Disable all interactive prompts. Fails if input is required. |
 | `--quiet` / `-q` | | Suppress non-essential output |
 | `--api-key-file <PATH>` | `TVC_API_KEY_FILE` | Path to API key JSON file (overrides login config) |
-| `--operator-key-file <PATH>` | `TVC_OPERATOR_KEY_FILE` | Path to operator key JSON file (overrides login config) |
 | `--api-url <URL>` | `TVC_API_URL` | API base URL override |
 | `--org-id <ID>` | `TVC_ORG_ID` | Organization ID override |
 
@@ -38,7 +37,7 @@ tvc login
 tvc login --org my-alias
 
 # Fully non-interactive (CI/CD)
-tvc login --no-input --org-id <ORG_UUID> --alias default --api-env prod --skip-api-key-wait
+tvc login --no-input --org-id <ORG_UUID> --alias default --api-env prod
 ```
 
 | Flag | Env Var | Description |
@@ -46,7 +45,6 @@ tvc login --no-input --org-id <ORG_UUID> --alias default --api-env prod --skip-a
 | `--org <ALIAS_OR_ID>` | | Select an existing org by alias or ID |
 | `--alias <NAME>` | `TVC_ORG_ALIAS` | Alias for the org config (default: "default") |
 | `--api-env <ENV>` | `TVC_API_ENV` | API environment: `prod`, `preprod`, `dev`, `local` |
-| `--skip-api-key-wait` | | Skip the "press Enter" prompt after API key generation |
 
 ### tvc app init
 
@@ -79,21 +77,7 @@ Returns: app_id, manifest_set_id, manifest_set_operator_ids. The app ID and oper
 
 ### tvc app list
 
-List applications in the current org.
-
-```bash
-tvc app list
-
-# Filter by name
-tvc app list --name my-app
-
-# JSON output
-tvc --json app list
-```
-
-| Flag | Description |
-|---|---|
-| `-n, --name <NAME>` | Filter by app name |
+**Note:** This command is defined in the CLI but not yet implemented. It will error if called.
 
 ### tvc deploy init
 
@@ -240,7 +224,6 @@ The CLI caches useful IDs for convenience:
 | `TVC_JSON` | Global | Enable JSON output |
 | `TVC_NO_INPUT` | Global | Disable interactive prompts |
 | `TVC_API_KEY_FILE` | Global | Path to API key JSON file |
-| `TVC_OPERATOR_KEY_FILE` | Global | Path to operator key JSON file |
 | `TVC_API_URL` | Global | API base URL |
 | `TVC_ORG_ID` | Global, Login | Organization ID |
 | `TVC_ORG_ALIAS` | Login | Organization alias |

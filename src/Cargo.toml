@@ -33,4 +33,3 @@ tower-http = { version = "0.6", features = ["trace"] }
 http-body-util = "0.1"
 pin-project-lite = "0.2"
 prometheus = { version = "0.13", default-features = false }
-serde = { version = "1", features = ["derive"] }

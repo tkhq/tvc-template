@@ -107,7 +107,6 @@ Then add to `~/.docker/config.json`:
 **Fix:** Use the automation flags:
 - `--no-input`: Fails instead of prompting (global flag, available on all commands)
 - `--yes` / `-y`: Auto-approves all manifest sections (deploy approve)
-- `--skip-api-key-wait`: Skips "press Enter" prompt (login)
 - Environment variables: Set `TVC_NO_INPUT=true` globally
 
 ## Stateful Endpoint Inconsistency

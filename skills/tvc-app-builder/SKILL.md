@@ -232,9 +232,9 @@ sha256sum ./binary
 tvc login
 
 # Non-interactive (CI/CD or agent use)
-tvc login --no-input --org-id <ORG_UUID> --alias default --api-env prod --skip-api-key-wait
+tvc login --no-input --org-id <ORG_UUID> --alias default --api-env prod
 
-# Or bypass login entirely with override flags:
+# Or bypass login entirely with global override flags:
 export TVC_API_KEY_FILE=/path/to/api_key.json
 export TVC_API_URL=https://api.turnkey.com
 export TVC_ORG_ID=<your-org-uuid>
