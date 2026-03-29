@@ -2,7 +2,7 @@
 name: tvc-app-builder
 description: "Builds and deploys TVC (Turnkey Verifiable Cloud) enclave applications on the tvc-template. Covers Rust endpoints, Axum route handlers, testing, OCI container builds, TVC CLI deployment, and calling the Turnkey API from TVC apps. Use when asked to create/build/deploy a TVC app, add TVC endpoints or route handlers, write TVC tests, run tvc login/deploy/approve, fix TVC deployment 404, set up TVC CI/CD, build TVC containers, build sealed-bid auctions or settlement engines or prediction markets on TVC, call Turnkey API from TVC, or stamp Turnkey requests in Rust for TVC. Do NOT use for signing transactions via Turnkey API (use signing-transactions-api), creating wallets (use managing-wallets-api), managing policies (use managing-policies-api), standalone Turnkey API auth (use stamping-api), or general Rust unrelated to TVC."
 metadata:
-  version: "3.2.0"
+  version: "3.3.0"
   author: turnkey
   tags: ["tvc", "enclave", "solutions-engineering", "workflow", "deployment"]
 ---
@@ -17,7 +17,7 @@ Build a TVC enclave application by reading the current project structure, adding
 
 - Rust toolchain (version pinned in `src/rust-toolchain.toml`)
 - Docker with buildx plugin (`brew install docker-buildx`, then add `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]` to `~/.docker/config.json`)
-- The TVC CLI (`tvc`), installed from github.com/tkhq/rust-sdk: `cd rust-sdk/tvc && cargo install --path .`
+- The TVC CLI (`tvc`), installed from [github.com/tkhq/rust-sdk](https://github.com/tkhq/rust-sdk): `git clone git@github.com:tkhq/rust-sdk.git && cd rust-sdk && cargo install --path tvc`
 - A container registry account (ghcr.io recommended). Container images MUST be public or deployed with a pull secret.
 - `jq` for parsing JSON CLI output
 - `gh` CLI for GitHub authentication (used to obtain ghcr.io login tokens)
@@ -167,9 +167,32 @@ If the project has an `e2e` crate, add integration tests that spawn the real ser
 
 For detailed testing patterns, see [references/testing-guide.md](references/testing-guide.md).
 
+## Security: Agent-Assisted Deployment
+
+Deploying to TVC from an AI agent or automated pipeline requires extra caution. Enclave deployments are difficult to reverse and directly affect production infrastructure.
+
+**Mandatory confirmation gates (agents MUST follow these):**
+- ALWAYS confirm with the user before running `tvc deploy approve --yes`. This command cryptographically approves a deployment manifest, which triggers enclave provisioning. Once approved, the deployment goes live.
+- ALWAYS confirm with the user before running `tvc deploy create`. This creates a deployment that consumes infrastructure resources.
+- ALWAYS show the user the full deploy.json and app.json contents before creating resources, so they can review the configuration.
+- NEVER run `tvc deploy approve` with `--yes` in production environments without explicit user authorization for that specific deployment.
+
+**Credential handling:**
+- NEVER commit API key files, operator key files, or pull secrets to version control.
+- NEVER log or display private key material. The CLI stores keys at `~/.config/turnkey/orgs/<alias>/` and these paths should not be read or echoed.
+- When using `--api-key-file`, pass the path to the file, not the file contents.
+- API keys and operator keys are P256 keypairs with full signing authority over the organization. Treat them like production database credentials.
+- Prefer scoped API keys with minimal permissions when possible.
+
+**Deployment safety:**
+- Use `tvc deploy approve --dry-run` first to review the manifest before generating an actual approval.
+- Use `tvc deploy approve --skip-post` to generate the approval locally without posting it, allowing manual review before submission.
+- Always verify `tvc deploy status` returns "Live" and confirm the app responds on its URL before considering a deployment complete.
+- Apps cannot currently be deleted through the CLI or dashboard. Create app names carefully.
+
 ## Building and Deploying (Autonomous CLI Workflow)
 
-The TVC CLI supports fully non-interactive operation using `--json`, `--no-input`, and `--yes` flags. All flags have corresponding `TVC_*` environment variables. For the complete CLI reference, see [references/tvc-cli-guide.md](references/tvc-cli-guide.md).
+The TVC CLI (from [github.com/tkhq/rust-sdk](https://github.com/tkhq/rust-sdk)) supports fully non-interactive operation using `--json`, `--no-input`, and `--yes` flags. All flags have corresponding `TVC_*` environment variables. For the complete CLI reference, see [references/tvc-cli-guide.md](references/tvc-cli-guide.md).
 
 ### Step 1: Build and test
 
@@ -227,14 +250,23 @@ sha256sum ./binary
 
 ### Step 5: Login (if not already authenticated)
 
+There are two authentication paths:
+
+**Path A: Import an existing API key from the Turnkey dashboard (recommended for agents)**
 ```bash
-# Interactive (first-time setup)
-tvc login
+# Download API credentials JSON from the Turnkey dashboard, then:
+tvc login --org-id <ORG_UUID> --api-key-file /path/to/credentials.json --api-env prod --no-input
+```
+The CLI accepts both the dashboard export format (JSON array with `apiKeyName`, `publicKey`, `privateKey`, `curveType`) and the CLI internal format. The key is imported, converted, and verified in one step.
 
-# Non-interactive (CI/CD or agent use)
-tvc login --no-input --org-id <ORG_UUID> --alias default --api-env prod
+**Path B: Let the CLI generate a new key**
+```bash
+tvc login --org-id <ORG_UUID> --api-env prod --no-input
+```
+The CLI generates a P256 keypair and prints the public key. You must add this public key to your organization in the Turnkey dashboard before the key will work. Run `tvc login --org default` again after adding the key to verify.
 
-# Or bypass login entirely with global override flags:
+**Path C: Bypass login entirely with global override flags**
+```bash
 export TVC_API_KEY_FILE=/path/to/api_key.json
 export TVC_API_URL=https://api.turnkey.com
 export TVC_ORG_ID=<your-org-uuid>
@@ -247,6 +279,9 @@ export TVC_ORG_ID=<your-org-uuid>
 tvc app init --output app.json
 # Fill in: name and manifestSetParams.name
 # The operator and quorum keys are auto-populated from login
+# IMPORTANT: Set "externalConnectivity": true if the app needs to be reachable
+# from the internet. The default is false, which means the ingress proxy will
+# return 404 for all requests even though the enclave is running.
 
 # Create the app and capture IDs
 APP_RESULT=$(tvc --json app create app.json)
@@ -285,14 +320,23 @@ The app URL depends on the API environment you authenticated against:
 
 Check `api_base_url` in `~/.config/turnkey/tvc.config.toml` to determine which environment you are using. TVC automatically provisions TLS and network ingress. The enclave may take 1-2 minutes after approval before it begins responding (a `404 page not found` from the ingress proxy during this window is normal).
 
+### App configuration fields
+
+| Field | Description | Example |
+|---|---|---|
+| `name` | App name (must be unique in the org, cannot be deleted) | `my-app` |
+| `externalConnectivity` | Whether the app is reachable from the internet. **Set to `true` for any app that serves HTTP traffic.** Default is `false`. | `true` |
+| `manifestSetParams.name` | Name for the manifest set | `my-manifest-set` |
+| `manifestSetParams.threshold` | Number of operator approvals required | `1` |
+
 ### Deployment configuration fields
 
 | Field | Description | Example |
 |---|---|---|
 | `pivotContainerImageUrl` | OCI image URL with SHA256 digest | `ghcr.io/user/app@sha256:f813...` |
 | `pivotPath` | Path to binary in the container | `/helloworld` |
-| `pivotArgs` | CLI arguments as JSON array | `["--host", "0.0.0.0", "--port", "3000"]` |
-| `expectedPivotDigest` | SHA256 hash of the binary file | `cbe011...` |
+| `pivotArgs` | CLI arguments as JSON array. For the helloworld template, use `["--host", "0.0.0.0", "--port", "3000"]` | `["--host", "0.0.0.0", "--port", "3000"]` |
+| `expectedPivotDigest` | SHA256 hash of the **binary file** (not the container image digest) | `cbe011...` |
 | `publicIngressPort` | Port exposed to the internet | `3000` |
 | `healthCheckPort` | Port for health checks | `3000` |
 | `healthCheckType` | Health check protocol | `TVC_HEALTH_CHECK_TYPE_HTTP` |
@@ -302,18 +346,36 @@ For troubleshooting deployment issues, see [references/deployment-troubleshootin
 
 ## Rules
 
+**Code:**
 - Always run tests and lint before deploying
 - Never use `unwrap()`, `expect()`, or `panic!()` in production code (compiler rejects it)
 - Do not modify shared middleware crates (metrics) unless adding custom metric types
 - Keep the `/health` endpoint functional for orchestration and TVC health checks
 - Add workspace dependencies at the workspace level first, then reference with `workspace = true`
-- Container images MUST be publicly pullable or deployed with `--pivot-pull-secret`
-- Container builds must be reproducible (no non-deterministic build steps)
-- When renaming the binary, update all references: Cargo.toml, Containerfile, Makefile, e2e test harness, and CI workflows
 - Use `rustls-tls` for HTTP clients (no system SSL in enclaves)
 - Design for stateless, deterministic computation. Avoid relying on in-memory state across requests.
-- Always use `--json` flag when parsing TVC CLI output programmatically
+- When renaming the binary, update all references: Cargo.toml, Containerfile, Makefile, e2e test harness, and CI workflows
+
+**Container builds:**
+- Container images MUST be publicly pullable or deployed with `--pivot-pull-secret`
+- Container builds must be reproducible (no non-deterministic build steps)
 - Always pin container images by SHA256 digest, never by mutable tag alone
+- Verify the image is public before deploying (use the ghcr.io token check in Step 3)
+- The `expectedPivotDigest` is the SHA256 of the binary file, NOT the container image digest. These are different values.
+
+**Deployment:**
+- Always use `--json` flag when parsing TVC CLI output programmatically
+- Set `externalConnectivity: true` in app.json for any app that needs to serve external HTTP traffic
+- Always include `pivotArgs: ["--host", "0.0.0.0", "--port", "3000"]` (or your app's equivalent) so the binary listens on all interfaces
+- Remove the `pivotContainerEncryptedPullSecret` field entirely from deploy.json if the image is public
+- App names are permanent and cannot be deleted. Choose names carefully.
+- Expect a 1-2 minute provisioning delay after approval before the app responds. A 404 during this window is normal.
+
+**Security:**
+- Never commit API keys, operator keys, or pull secrets to version control
+- Never log or display private key material
+- Always confirm with the user before running `tvc deploy approve --yes` (see Security section above)
+- Prefer `--dry-run` to review manifests before generating approvals
 
 ## Related Skills
 

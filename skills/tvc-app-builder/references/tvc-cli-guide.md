@@ -36,7 +36,10 @@ tvc login
 # Select existing org
 tvc login --org my-alias
 
-# Fully non-interactive (CI/CD)
+# Import API key from dashboard-exported credentials file (recommended for agents)
+tvc login --org-id <ORG_UUID> --api-key-file /path/to/credentials.json --api-env prod --no-input
+
+# Fully non-interactive without existing key (generates new key, requires manual registration)
 tvc login --no-input --org-id <ORG_UUID> --alias default --api-env prod
 ```
 
@@ -45,6 +48,13 @@ tvc login --no-input --org-id <ORG_UUID> --alias default --api-env prod
 | `--org <ALIAS_OR_ID>` | | Select an existing org by alias or ID |
 | `--alias <NAME>` | `TVC_ORG_ALIAS` | Alias for the org config (default: "default") |
 | `--api-env <ENV>` | `TVC_API_ENV` | API environment: `prod`, `preprod`, `dev`, `local` |
+| `--api-key-file <PATH>` | `TVC_API_KEY_FILE` | Import API key from file (dashboard or CLI format) |
+
+**Authentication paths:**
+
+1. **Import existing key** (`--api-key-file`): Download credentials JSON from the Turnkey dashboard, pass the file path. The CLI accepts both the dashboard export format (JSON array with camelCase fields) and the CLI internal format. Key is imported, saved, and verified in one step.
+
+2. **Generate new key** (no `--api-key-file`): The CLI generates a P256 keypair, prints the public key, and saves it locally. You must add the public key to your organization in the Turnkey dashboard before it will work. The CLI exits cleanly and instructs you to run `tvc login --org <alias>` to verify after registering the key.
 
 ### tvc app init
 

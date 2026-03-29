@@ -125,12 +125,23 @@ Then add to `~/.docker/config.json`:
 
 **Fix:** Wait and retry. The `404 page not found` from the ingress proxy will be replaced by your app's responses once the enclave is ready. If the 404 persists beyond 5 minutes, investigate other causes below.
 
+## External Connectivity Disabled (404 with healthy replicas)
+
+**Symptom:** Deployment shows "Live" with 3/3 healthy replicas on the dashboard, but all requests return `404 page not found` from the ingress proxy. The app never responds, even after waiting well beyond the provisioning delay.
+
+**Cause:** The app was created with `externalConnectivity: false` (the default from `tvc app init`). When this is false, the TVC ingress proxy does not route external traffic to the enclave, even though the enclave is running and healthy internally.
+
+**Fix:** Create a new app with `"externalConnectivity": true` in the app config JSON, then redeploy. This setting cannot be changed after app creation. You must create a new app.
+
+**Prevention:** Always set `"externalConnectivity": true` in app.json for any app that needs to serve HTTP traffic from the internet.
+
 ## Deployment Status Says "Live" But App Is Not Responding
 
 **Symptom:** `tvc deploy status` shows "Live" but the app URL returns errors persistently (beyond initial provisioning delay).
 
 **Possible causes:**
-1. Container image is private (see "Container Image Is Private" above)
-2. Wrong URL domain for the environment (see "Wrong App URL Domain" above)
-3. Health check configuration mismatch (ensure `healthCheckPort` matches the port your app listens on, and `/health` returns 200)
-4. Binary args are wrong (verify `pivotArgs` matches what your app expects, e.g. `["--host", "0.0.0.0", "--port", "3000"]`)
+1. External connectivity is disabled (see "External Connectivity Disabled" above)
+2. Container image is private (see "Container Image Is Private" above)
+3. Wrong URL domain for the environment (see "Wrong App URL Domain" above)
+4. Health check configuration mismatch (ensure `healthCheckPort` matches the port your app listens on, and `/health` returns 200)
+5. Binary args are wrong (verify `pivotArgs` matches what your app expects, e.g. `["--host", "0.0.0.0", "--port", "3000"]`)
