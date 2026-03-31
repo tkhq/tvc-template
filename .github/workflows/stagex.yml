@@ -78,3 +78,9 @@ jobs:
           echo "Executable path: /tvc_app"
           echo "Expected Executable Digest: ${digest}"
           echo "--------------------------------"
+          # Also use Github summary to display the details in a more visible way within build output
+          echo "## TVC Deployment Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Container Image URL**: \`${container_url}@sha256:${container_digest}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Executable path**: \`/tvc_app\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Expected Executable Digest**: \`${digest}\`" >> $GITHUB_STEP_SUMMARY
