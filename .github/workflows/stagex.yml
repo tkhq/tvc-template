@@ -62,3 +62,19 @@ jobs:
               docker tag "tkhq-tvc-helloworld/${{ matrix.target.name }}:latest" "ghcr.io/tkhq/${{ matrix.target.name }}:${tag}"
           done
           docker image push --all-tags "ghcr.io/tkhq/${{ matrix.target.name }}"
+      - name: TVC deployment details
+        run: |
+          # Extract TVC deployment details from the built container image.
+          first_tag=$(echo "${{ env.tags }}" | awk '{print $1}')
+          container_url="ghcr.io/tkhq/${{ matrix.target.name }}:${first_tag}"
+          container_digest=$(docker inspect --format='{{index .RepoDigests 0}}' "${container_url}" | cut -d '@' -f 2)
+          docker create --name tmp-extract "${container_url}" /bin/true && docker cp tmp-extract:/tvc_app /tmp/binary && docker rm tmp-extract
+          digest=$(sha256sum /tmp/binary | awk '{print $1}')
+          echo ""
+          echo "To deploy your application within TVC, use the following details:"
+          echo ""
+          echo "---- TVC Deployment Details ----"
+          echo "Container Image URL: ${container_url}@sha256:${container_digest}"
+          echo "Executable path: /tvc_app"
+          echo "Expected Executable Digest: ${digest}"
+          echo "--------------------------------"
