@@ -1,0 +1,18 @@
+{
+  "name": "tvc-template",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "TVC template with agent skill evals",
+  "scripts": {
+    "validate": "tsx skills/tvc-app-builder/scripts/validate.ts",
+    "eval": "tsx skills/tvc-app-builder/scripts/eval-triggers.ts",
+    "eval:ci": "tsx skills/tvc-app-builder/scripts/eval-triggers.ts --skill tvc-app-builder --threshold 70 --concurrency 4",
+    "eval:loop": "tsx skills/tvc-app-builder/scripts/eval-triggers.ts --skill tvc-app-builder --runs 3"
+  },
+  "devDependencies": {
+    "gray-matter": "^4.0.3",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
