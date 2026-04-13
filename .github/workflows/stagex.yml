@@ -74,13 +74,13 @@ jobs:
           echo "To deploy your application within TVC, use the following details:"
           echo ""
           echo "---- TVC Deployment Details ----"
-          echo "Container Image URL: ${container_url}@sha256:${container_digest}"
+          echo "Container Image URL: ${container_url}@${container_digest}"
           echo "Executable path: /tvc_app"
           echo "Expected Executable Digest: ${digest}"
           echo "--------------------------------"
           # Also use Github summary to display the details in a more visible way within build output
           echo "## TVC Deployment Details" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Container Image URL**: \`${container_url}@sha256:${container_digest}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Container Image URL**: \`${container_url}@${container_digest}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Executable path**: \`/tvc_app\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Expected Executable Digest**: \`${digest}\`" >> $GITHUB_STEP_SUMMARY
