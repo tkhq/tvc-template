@@ -26,6 +26,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = format!("{}:{}", cli.host, cli.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("Server listening on {addr}");
+    tracing::warn!("(Dummy warn): Server listening on {addr}");
+    tracing::error!("(Dummy error): Server listening on {addr}");
     axum::serve(listener, app).await?;
     Ok(())
 }

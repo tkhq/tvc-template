@@ -8,6 +8,7 @@ use axum::{
 };
 use serde_json::json;
 use tower_http::trace::TraceLayer;
+use tracing::{error, info, warn};
 
 /// Build the application router with all routes.
 pub fn router() -> Router {
@@ -29,12 +30,20 @@ async fn hello_world() -> impl IntoResponse {
 
 async fn time() -> Response {
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(now) => (StatusCode::OK, axum::Json(json!({"time": now.as_secs()}))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(json!({"error": format!("system clock error: {e}")})),
-        )
-            .into_response(),
+        Ok(now) => {
+            info!("time success: {now:?}");
+            warn!("(dummy warn) time success: {now:?}");
+            error!("(dummy error) time success: {now:?}");
+            (StatusCode::OK, axum::Json(json!({"time": now.as_secs()}))).into_response()
+        },
+        Err(e) => {
+            error!("system clock error: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(json!({"error": format!("system clock error: {e}")})),
+            )
+                .into_response()
+        },
     }
 }
 
