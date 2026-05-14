@@ -1,8 +1,8 @@
 [workspace]
 members = [
-  "src/e2e",
-  "src/metrics",
-  "src/helloworld",
+  "crates/e2e",
+  "crates/metrics",
+  "crates/helloworld",
 ]
 
 resolver = "3"

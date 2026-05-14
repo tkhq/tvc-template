@@ -28,7 +28,7 @@ run:
 	--port $(PORT)
 
 out/helloworld/index.json: \
-	Cargo.lock Cargo.toml rust-toolchain.toml $(shell find images/helloworld src -type f ! -path '*/target/*')
+	Cargo.lock Cargo.toml rust-toolchain.toml $(shell find images/helloworld crates -type f ! -path '*/target/*')
 	$(call build,helloworld)
 
 define build_context

@@ -12,13 +12,13 @@ ENV APPLICATION_CRATE_NAME=helloworld
 
 # Load Rust workspace
 ADD Cargo.toml Cargo.lock rust-toolchain.toml /src/
-ADD src /src/src
+ADD crates /src/crates
 WORKDIR /src/
 
 # pre-fetch all workspace deps; we need to them to build with `--network=none` later
 RUN cargo fetch
 
-WORKDIR /src/src/${APPLICATION_CRATE_NAME}
+WORKDIR /src/crates/${APPLICATION_CRATE_NAME}
 RUN --network=none <<-EOF
     set -eu
     cargo build ${CARGOFLAGS}
