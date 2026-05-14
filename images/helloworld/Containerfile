@@ -1,4 +1,4 @@
-FROM stagex/pallet-rust:1.88.0@sha256:b9021d2b75eac64fe8b931d96dde63ef11792e5023cee77c3471ccc34a95a377 AS build
+FROM stagex/pallet-rust:1.94.0@sha256:4e2d4273a1d5c6d62660968302791f3cf550c3d12629e66314956ff46c97fc0e AS build
 
 # Rust configuration
 ENV RUSTFLAGS='-C target-feature=+crt-static'
