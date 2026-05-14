@@ -71,10 +71,6 @@ make out/helloworld/index.json
 ## Project Structure
 
 ```
-Cargo.toml         # Rust workspace manifest
-Cargo.lock         # Rust workspace lockfile
-rust-toolchain.toml # Rust 1.94 toolchain with rustfmt and clippy
-Makefile           # Rust development and OCI image build targets
 src/
   helloworld/     # REST server binary
   metrics/        # Prometheus metrics Tower middleware
