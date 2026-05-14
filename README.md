@@ -71,7 +71,7 @@ make out/helloworld/index.json
 ## Project Structure
 
 ```
-src/
+crates/
   helloworld/     # REST server binary
   metrics/        # Prometheus metrics Tower middleware
   e2e/            # End-to-end tests

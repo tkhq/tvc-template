@@ -10,7 +10,7 @@ on:
       - ".github/**"
       - "Cargo.lock"
       - "Cargo.toml"
-      - "src/**"
+      - "crates/**"
       - "Makefile"
       - "rust-toolchain.toml"
   pull_request:
@@ -18,7 +18,7 @@ on:
       - ".github/**"
       - "Cargo.lock"
       - "Cargo.toml"
-      - "src/**"
+      - "crates/**"
       - "images/**"
       - "Makefile"
       - "rust-toolchain.toml"
