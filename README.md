@@ -31,13 +31,13 @@ tvc_http_request_duration_ms_bucket{method="GET",path="/health",status="200",le=
 ### Run tests
 
 ```
-make -C src test
+make test
 ```
 
 ### Run locally
 
 ```
-make -C src run
+make run
 ```
 
 Server starts on http://127.0.0.1:44020
@@ -45,7 +45,7 @@ Server starts on http://127.0.0.1:44020
 ### Lint
 
 ```
-make -C src lint
+make lint
 ```
 
 ## Building OCI containers
@@ -71,6 +71,10 @@ make out/helloworld/index.json
 ## Project Structure
 
 ```
+Cargo.toml         # Rust workspace manifest
+Cargo.lock         # Rust workspace lockfile
+rust-toolchain.toml # Rust 1.94 toolchain with rustfmt and clippy
+Makefile           # Rust development and OCI image build targets
 src/
   helloworld/     # REST server binary
   metrics/        # Prometheus metrics Tower middleware

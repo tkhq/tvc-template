@@ -1,5 +1,34 @@
+HOST ?= 127.0.0.1
+PORT ?= 44020
+
+.PHONY: all
+all: build
+
+.PHONY: build
+build:
+	cargo build --all
+
+.PHONY: test
+test: build
+	cargo test --all-targets
+
+.PHONY: fmt
+fmt:
+	cargo fmt
+
+.PHONY: lint
+lint:
+	cargo clippy --version
+	cargo clippy --all-targets -- -D warnings
+
+.PHONY: run
+run:
+	cargo run --bin helloworld -- \
+	--host $(HOST) \
+	--port $(PORT)
+
 out/helloworld/index.json: \
-	$(shell git ls-files images/helloworld src)
+	Cargo.lock Cargo.toml rust-toolchain.toml $(shell find images/helloworld src -type f ! -path '*/target/*')
 	$(call build,helloworld)
 
 define build_context

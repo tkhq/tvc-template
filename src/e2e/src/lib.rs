@@ -121,7 +121,10 @@ impl Builder {
         let host_port =
             find_free_port().expect("failed to find a free port after maximum search attempts");
 
-        let _server_process: ChildWrapper = Command::new("../target/debug/helloworld")
+        let server_binary =
+            workspace_binary("helloworld").expect("failed to locate helloworld binary");
+
+        let _server_process: ChildWrapper = Command::new(server_binary)
             .arg("--host")
             .arg(HOST_IP)
             .arg("--port")
@@ -138,4 +141,14 @@ impl Builder {
 
         test(test_args).await;
     }
+}
+
+fn workspace_binary(name: &str) -> std::io::Result<std::path::PathBuf> {
+    let mut path = std::env::current_exe()?;
+    path.pop();
+    if path.ends_with("deps") {
+        path.pop();
+    }
+    path.push(name);
+    Ok(path)
 }

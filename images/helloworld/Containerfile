@@ -10,14 +10,15 @@ ENV RELEASE_DIR=/src/target/x86_64-unknown-linux-musl/release
 # Name of the crate directory containing the main binary
 ENV APPLICATION_CRATE_NAME=helloworld
 
-# Load Rust sources
-ADD src /src
+# Load Rust workspace
+ADD Cargo.toml Cargo.lock rust-toolchain.toml /src/
+ADD src /src/src
 WORKDIR /src/
 
 # pre-fetch all workspace deps; we need to them to build with `--network=none` later
 RUN cargo fetch
 
-WORKDIR /src/${APPLICATION_CRATE_NAME}
+WORKDIR /src/src/${APPLICATION_CRATE_NAME}
 RUN --network=none <<-EOF
     set -eu
     cargo build ${CARGOFLAGS}
