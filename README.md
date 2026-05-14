@@ -31,13 +31,13 @@ tvc_http_request_duration_ms_bucket{method="GET",path="/health",status="200",le=
 ### Run tests
 
 ```
-make -C src test
+make test
 ```
 
 ### Run locally
 
 ```
-make -C src run
+make run
 ```
 
 Server starts on http://127.0.0.1:44020
@@ -45,7 +45,7 @@ Server starts on http://127.0.0.1:44020
 ### Lint
 
 ```
-make -C src lint
+make lint
 ```
 
 ## Building OCI containers

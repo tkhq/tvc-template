@@ -8,14 +8,20 @@ on:
       - "main"
     paths:
       - ".github/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
       - "src/**"
       - "Makefile"
+      - "rust-toolchain.toml"
   pull_request:
     paths:
       - ".github/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
       - "src/**"
       - "images/**"
       - "Makefile"
+      - "rust-toolchain.toml"
   workflow_dispatch: # Allows manual invocation
 
 jobs:

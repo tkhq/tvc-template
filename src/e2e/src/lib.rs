@@ -121,7 +121,9 @@ impl Builder {
         let host_port =
             find_free_port().expect("failed to find a free port after maximum search attempts");
 
-        let _server_process: ChildWrapper = Command::new("../target/debug/helloworld")
+        let server_binary = assert_cmd::cargo::cargo_bin("helloworld");
+
+        let _server_process: ChildWrapper = Command::new(server_binary)
             .arg("--host")
             .arg(HOST_IP)
             .arg("--port")

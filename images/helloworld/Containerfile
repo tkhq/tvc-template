@@ -1,4 +1,4 @@
-FROM stagex/pallet-rust:1.88.0@sha256:b9021d2b75eac64fe8b931d96dde63ef11792e5023cee77c3471ccc34a95a377 AS build
+FROM stagex/pallet-rust:1.94.0@sha256:4e2d4273a1d5c6d62660968302791f3cf550c3d12629e66314956ff46c97fc0e AS build
 
 # Rust configuration
 ENV RUSTFLAGS='-C target-feature=+crt-static'
@@ -10,14 +10,15 @@ ENV RELEASE_DIR=/src/target/x86_64-unknown-linux-musl/release
 # Name of the crate directory containing the main binary
 ENV APPLICATION_CRATE_NAME=helloworld
 
-# Load Rust sources
-ADD src /src
+# Load Rust workspace
+ADD Cargo.toml Cargo.lock rust-toolchain.toml /src/
+ADD src /src/src
 WORKDIR /src/
 
 # pre-fetch all workspace deps; we need to them to build with `--network=none` later
 RUN cargo fetch
 
-WORKDIR /src/${APPLICATION_CRATE_NAME}
+WORKDIR /src/src/${APPLICATION_CRATE_NAME}
 RUN --network=none <<-EOF
     set -eu
     cargo build ${CARGOFLAGS}

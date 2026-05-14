@@ -21,6 +21,6 @@ jobs:
         with:
           components: clippy, rustfmt
       - name: Run linters
-        run: make -C src lint
+        run: make lint
       - name: Run tests
-        run: make -C src test
+        run: make test

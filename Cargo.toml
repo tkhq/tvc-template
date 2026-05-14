@@ -1,8 +1,8 @@
 [workspace]
 members = [
-  "e2e",
-  "metrics",
-  "helloworld",
+  "src/e2e",
+  "src/metrics",
+  "src/helloworld",
 ]
 
 resolver = "3"
@@ -11,7 +11,7 @@ resolver = "3"
 edition = "2024"
 version = "0.2.0"
 publish = false
-rust-version = "1.88"
+rust-version = "1.94"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
@@ -23,6 +23,7 @@ unsafe_code = "forbid"
 missing_docs = "warn"
 
 [workspace.dependencies]
+assert_cmd = "2.0"
 axum = { version = "0.8.8", default-features = false }
 serde_json = "1.0.142"
 tokio = { version = "1.47", default-features = false }
