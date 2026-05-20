@@ -34,3 +34,8 @@ tower-http = { version = "0.6", features = ["trace"] }
 http-body-util = "0.1"
 pin-project-lite = "0.2"
 prometheus = { version = "0.13", default-features = false }
+tempfile = "3.23"
+qos_core = { version = "0.8.0", default-features = false }
+qos_hex = { version = "0.8.0", default-features = false }
+qos_json = { version = "0.8.0", default-features = false }
+qos_p256 = { version = "0.8.0", default-features = false }

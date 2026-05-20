@@ -1,6 +1,7 @@
 #![allow(missing_docs, clippy::unwrap_used)]
 
 use e2e::TestArgs;
+use qos_p256::P256Public;
 
 #[tokio::test]
 async fn test_health() {
@@ -49,6 +50,35 @@ async fn test_time() {
             json["time"].is_u64(),
             "time field should be a unix timestamp"
         );
+    }
+    e2e::Builder::new().execute(test).await;
+}
+
+#[tokio::test]
+async fn test_random_app_proof() {
+    async fn test(test_args: TestArgs) {
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("{}/random_app_proof", test_args.base_url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let json: serde_json::Value = resp.json().await.unwrap();
+
+        let random_number = json["random_number"].as_str().unwrap();
+        let payload = json["proof"]["payload"].as_str().unwrap();
+        let payload_json: serde_json::Value = serde_json::from_str(payload).unwrap();
+        assert_eq!(
+            payload_json,
+            serde_json::json!({"random_number": random_number})
+        );
+
+        let public_key_bytes =
+            qos_hex::decode(json["proof"]["public_key"].as_str().unwrap()).unwrap();
+        let public_key = P256Public::from_bytes(&public_key_bytes).unwrap();
+        let signature = qos_hex::decode(json["proof"]["signature"].as_str().unwrap()).unwrap();
+        public_key.verify(payload.as_bytes(), &signature).unwrap();
     }
     e2e::Builder::new().execute(test).await;
 }
