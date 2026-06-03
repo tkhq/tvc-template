@@ -34,3 +34,8 @@ tower-http = { version = "0.6", features = ["trace"] }
 http-body-util = "0.1"
 pin-project-lite = "0.2"
 prometheus = { version = "0.13", default-features = false }
+# Outbound HTTP client. We pin `rustls-tls` (and disable default features so the
+# OpenSSL/native-tls backend is never linked) because TVC enclaves ship without
+# system SSL libraries: TLS is terminated and the server certificate verified
+# in-process by rustls, inside QuorumOS verified egress.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
