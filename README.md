@@ -19,6 +19,18 @@ $ curl localhost:44020/time
 $ curl localhost:44020/random_app_proof
 {"random_number":"12345","proof":{"public_key":"...","payload":"{\"random_number\":\"12345\"}","signature":"..."}}
 
+$ curl -X POST \
+  -H 'content-type: application/json' \
+  -d '{"plaintext":"hello TVC world"}' \
+  localhost:44020/quorum_key/encrypt
+{"ciphertext":"..."}
+
+$ curl -X POST \
+  -H 'content-type: application/json' \
+  -d '{"ciphertext":"..."}' \
+  localhost:44020/quorum_key/decrypt
+{"plaintext":"hello TVC world"}
+
 $ curl -X POST -d 'hello' localhost:44020/echo
 hello
 
@@ -44,12 +56,6 @@ make run
 ```
 
 Server starts on http://127.0.0.1:44020
-
-### Lint
-
-```
-make lint
-```
 
 ## Building OCI containers
 
