@@ -1,7 +1,7 @@
 //! Router for the Hello World REST server
-use crate::response::{AppError, QosJson};
+use crate::response::AppError;
 use axum::{
-    Router,
+    Json, Router,
     body::Body,
     extract::State,
     http::StatusCode,
@@ -58,8 +58,7 @@ struct AppProof {
 
 #[derive(Serialize)]
 struct RandomAppProofResponse {
-    #[serde(with = "qos_json::string_or_numeric")]
-    random_number: u64,
+    payload: RandomNumberProofPayload,
     proof: AppProof,
 }
 
@@ -105,13 +104,14 @@ async fn echo(body: Body) -> Response {
 
 async fn random_app_proof(
     State(state): State<AppState>,
-) -> Result<QosJson<RandomAppProofResponse>, AppError> {
+) -> Result<Json<RandomAppProofResponse>, AppError> {
     let random_number = rand::random::<u64>();
     let proof_payload = RandomNumberProofPayload { random_number };
 
     // QOS JSON is a deterministic serialization protocol with stricter rules
     // than normal JSON. It is useful when you need canonical serialization for
-    // verifying signatures.
+    // verifying signatures. We sign these exact bytes and return them in the response
+    // to make it easy for clients to verify the signature.
     let payload_bytes = qos_json::to_vec(&proof_payload)
         .map_err(|e| AppError::internal(format!("failed to serialize proof payload: {e}")))?;
 
@@ -126,7 +126,7 @@ async fn random_app_proof(
         .map_err(|e| AppError::internal(format!("failed to encode proof payload: {e}")))?;
 
     let response = RandomAppProofResponse {
-        random_number,
+        payload: proof_payload,
         proof: AppProof {
             public_key: ephemeral_key.public_key().to_bytes(),
             payload,
@@ -134,7 +134,7 @@ async fn random_app_proof(
         },
     };
 
-    Ok(QosJson(response))
+    Ok(Json(response))
 }
 
 #[cfg(test)]
@@ -245,9 +245,9 @@ mod tests {
         let json: serde_json::Value =
             serde_json::from_str(&body).expect("response is not valid JSON");
 
-        let random_number = json["random_number"]
-            .as_str()
-            .expect("random_number should be a qos_json number string");
+        let random_number = json["payload"]["random_number"]
+            .as_u64()
+            .expect("random_number should be a JSON number");
         let payload = json["proof"]["payload"]
             .as_str()
             .expect("proof payload should be a string");
@@ -255,7 +255,7 @@ mod tests {
             serde_json::from_str(payload).expect("payload is not valid JSON");
         assert_eq!(
             payload_json,
-            serde_json::json!({"random_number": random_number})
+            serde_json::json!({"random_number": random_number.to_string()})
         );
 
         let public_key = P256Public::from_bytes(

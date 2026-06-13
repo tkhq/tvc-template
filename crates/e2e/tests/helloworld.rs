@@ -66,12 +66,12 @@ async fn test_random_app_proof() {
         assert_eq!(resp.status(), 200);
         let json: serde_json::Value = resp.json().await.unwrap();
 
-        let random_number = json["random_number"].as_str().unwrap();
+        let random_number = json["payload"]["random_number"].as_u64().unwrap();
         let payload = json["proof"]["payload"].as_str().unwrap();
         let payload_json: serde_json::Value = serde_json::from_str(payload).unwrap();
         assert_eq!(
             payload_json,
-            serde_json::json!({"random_number": random_number})
+            serde_json::json!({"random_number": random_number.to_string()})
         );
 
         let public_key_bytes =
