@@ -16,6 +16,9 @@ $ curl localhost:44020/hello_world
 $ curl localhost:44020/time
 {"time":1741048558}
 
+$ curl localhost:44020/random_app_proof
+{"random_number":"12345","proof":{"public_key":"...","payload":"{\"random_number\":\"12345\"}","signature":"..."}}
+
 $ curl -X POST -d 'hello' localhost:44020/echo
 hello
 
