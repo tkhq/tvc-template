@@ -84,6 +84,35 @@ async fn test_random_app_proof() {
 }
 
 #[tokio::test]
+async fn test_quorum_key_encrypt_decrypt() {
+    async fn test(test_args: TestArgs) {
+        let client = reqwest::Client::new();
+        let plaintext = "hello TVC world";
+        let resp = client
+            .post(format!("{}/quorum_key/encrypt", test_args.base_url))
+            .json(&serde_json::json!({ "plaintext": plaintext }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let json: serde_json::Value = resp.json().await.unwrap();
+        let ciphertext = json["ciphertext"].as_str().unwrap();
+        qos_hex::decode(ciphertext).unwrap();
+
+        let resp = client
+            .post(format!("{}/quorum_key/decrypt", test_args.base_url))
+            .json(&serde_json::json!({ "ciphertext": ciphertext }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let json: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(json["plaintext"], plaintext);
+    }
+    e2e::Builder::new().execute(test).await;
+}
+
+#[tokio::test]
 async fn test_echo() {
     async fn test(test_args: TestArgs) {
         let client = reqwest::Client::new();

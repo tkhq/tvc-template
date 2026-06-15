@@ -19,6 +19,15 @@ struct ErrorResponse {
 }
 
 impl AppError {
+    /// Create a bad request error.
+    #[must_use]
+    pub fn bad_request(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            message: message.into(),
+        }
+    }
+
     /// Create an internal server error.
     #[must_use]
     pub fn internal(message: impl Into<String>) -> Self {

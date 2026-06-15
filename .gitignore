@@ -2,3 +2,4 @@ out
 .claude
 target
 *.log
+local-enclave
