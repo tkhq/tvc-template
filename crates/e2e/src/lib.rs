@@ -9,9 +9,9 @@
     clippy::panic
 )]
 
+use qos_p256::P256Pair;
 use std::future::Future;
 use std::net::TcpListener;
-use std::ops::Range;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -19,8 +19,6 @@ use std::time::Duration;
 const MAX_PORT_BIND_WAIT_TIME: Duration = Duration::from_secs(90);
 const PORT_BIND_WAIT_TIME_INCREMENT: Duration = Duration::from_millis(500);
 const POST_BIND_SLEEP: Duration = Duration::from_millis(500);
-const SERVER_PORT_RANGE: Range<u16> = 10000..60000;
-const MAX_PORT_SEARCH_ATTEMPTS: u16 = 50;
 
 /// Wrapper type for [`std::process::Child`] that kills the process on drop.
 #[derive(Debug)]
@@ -42,14 +40,10 @@ impl Drop for ChildWrapper {
 /// Get a bind-able TCP port on the local system.
 #[must_use]
 pub fn find_free_port() -> Option<u16> {
-    for _ in 0..MAX_PORT_SEARCH_ATTEMPTS {
-        let port = rand::random_range(SERVER_PORT_RANGE);
-        if port_is_available(port) {
-            return Some(port);
-        }
+    match TcpListener::bind((HOST_IP, 0)) {
+        Ok(listener) => listener.local_addr().ok().map(|addr| addr.port()),
+        Err(error) => panic!("failed to bind an OS-assigned local port: {error}"),
     }
-
-    None
 }
 
 /// Wait until the given `port` is bound. Helpful for telling if something is
@@ -122,12 +116,27 @@ impl Builder {
             find_free_port().expect("failed to find a free port after maximum search attempts");
 
         let server_binary = assert_cmd::cargo::cargo_bin("helloworld");
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+        let ephemeral_key_path = temp_dir.path().join("qos.ephemeral.key");
+        let quorum_key_path = temp_dir.path().join("qos.quorum.key");
+        P256Pair::generate()
+            .expect("failed to generate ephemeral key")
+            .to_hex_file(&ephemeral_key_path)
+            .expect("failed to write ephemeral key");
+        P256Pair::generate()
+            .expect("failed to generate quorum key")
+            .to_hex_file(&quorum_key_path)
+            .expect("failed to write quorum key");
 
         let _server_process: ChildWrapper = Command::new(server_binary)
             .arg("--host")
             .arg(HOST_IP)
             .arg("--port")
             .arg(host_port.to_string())
+            .arg("--ephemeral-file")
+            .arg(&ephemeral_key_path)
+            .arg("--quorum-file")
+            .arg(&quorum_key_path)
             .spawn()
             .expect("failed to spawn helloworld binary")
             .into();

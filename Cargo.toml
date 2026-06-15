@@ -39,3 +39,8 @@ prometheus = { version = "0.13", default-features = false }
 # system SSL libraries: TLS is terminated and the server certificate verified
 # in-process by rustls, inside QuorumOS verified egress.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tempfile = "3.23"
+qos_core = { version = "0.10.0", default-features = false }
+qos_hex = { version = "0.10.0", default-features = false }
+qos_json = { version = "0.10.0", default-features = false }
+qos_p256 = { version = "0.10.0", default-features = false }
