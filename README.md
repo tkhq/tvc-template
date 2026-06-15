@@ -41,6 +41,42 @@ tvc_http_request_duration_ms_bucket{method="GET",path="/health",status="200",le=
 ...
 ```
 
+## Response signatures
+
+Every response is signed with the enclave's ephemeral
+[`qos_p256`](https://crates.io/crates/qos_p256) key (the same key used by
+`/random_app_proof`). A Tower middleware layer buffers each response body,
+signs the exact body bytes, and attaches two hex-encoded headers without
+otherwise changing the status, body, or content type:
+
+| Header | Contents |
+| --- | --- |
+| `x-tvc-ephemeral-public-key` | Hex of the ephemeral public key (`P256Public::to_bytes()`, uncompressed SEC1). |
+| `x-tvc-response-signature` | Hex of the qos_p256 signature over the raw response body bytes. |
+
+This applies to all endpoints, including `/metrics`.
+
+```sh
+$ curl -i localhost:44020/hello_world
+HTTP/1.1 200 OK
+content-type: application/json
+x-tvc-ephemeral-public-key: 04a1b2c3...
+x-tvc-response-signature: 3045022100...
+...
+{"message":"hello world"}
+```
+
+To verify a response, hex-decode both headers and check the signature over the
+exact response body bytes:
+
+```rust
+use qos_p256::P256Public;
+
+let public_key = P256Public::from_bytes(&qos_hex::decode(public_key_header)?)?;
+let signature = qos_hex::decode(signature_header)?;
+public_key.verify(response_body_bytes, &signature)?;
+```
+
 ## Development
 
 ### Run tests

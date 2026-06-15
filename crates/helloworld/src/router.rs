@@ -1,5 +1,6 @@
 //! Router for the Hello World REST server
 use crate::response::AppError;
+use crate::signing::ResponseSigningLayer;
 use axum::{
     Json, Router,
     body::Body,
@@ -101,6 +102,10 @@ pub fn router() -> Router {
 
 /// Build the application router with the given state.
 pub fn router_with_state(state: AppState) -> Router {
+    // Sign every response body with the same ephemeral qos_p256 key that the
+    // application state exposes (the key used by `random_app_proof`).
+    let signing_layer = ResponseSigningLayer::new(state.ephemeral_key_handle.clone());
+
     Router::new()
         .route("/health", get(health))
         .route("/hello_world", get(hello_world))
@@ -109,6 +114,7 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
+        .layer(signing_layer)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
