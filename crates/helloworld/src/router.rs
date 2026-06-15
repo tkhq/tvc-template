@@ -13,8 +13,8 @@ use qos_core::{
     handles::{EphemeralKeyHandle, QuorumKeyHandle},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tower_http::trace::TraceLayer;
+use tvc_axum::QosJson;
 
 /// Shared application state.
 #[derive(Clone)]
@@ -44,6 +44,26 @@ impl Default for AppState {
             QuorumKeyHandle::new(QUORUM_FILE.to_string()),
         )
     }
+}
+
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+}
+
+#[derive(Serialize)]
+struct HelloWorldResponse {
+    message: &'static str,
+}
+
+#[derive(Serialize)]
+struct TimeResponse {
+    time: u64,
+}
+
+#[derive(Serialize)]
+struct ErrorResponse {
+    error: String,
 }
 
 #[derive(Serialize)]
@@ -114,19 +134,29 @@ pub fn router_with_state(state: AppState) -> Router {
 }
 
 async fn health() -> impl IntoResponse {
-    axum::Json(json!({"status": "healthy"}))
+    QosJson(HealthResponse { status: "healthy" })
 }
 
 async fn hello_world() -> impl IntoResponse {
-    axum::Json(json!({"message": "hello world"}))
+    QosJson(HelloWorldResponse {
+        message: "hello world",
+    })
 }
 
 async fn time() -> Response {
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(now) => (StatusCode::OK, axum::Json(json!({"time": now.as_secs()}))).into_response(),
+        Ok(now) => (
+            StatusCode::OK,
+            QosJson(TimeResponse {
+                time: now.as_secs(),
+            }),
+        )
+            .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(json!({"error": format!("system clock error: {e}")})),
+            QosJson(ErrorResponse {
+                error: format!("system clock error: {e}"),
+            }),
         )
             .into_response(),
     }
@@ -138,7 +168,7 @@ async fn echo(body: Body) -> Response {
 
 async fn random_app_proof(
     State(state): State<AppState>,
-) -> Result<Json<RandomAppProofResponse>, AppError> {
+) -> Result<QosJson<RandomAppProofResponse>, AppError> {
     let random_number = rand::random::<u64>();
     let proof_payload = RandomNumberProofPayload { random_number };
 
@@ -168,13 +198,13 @@ async fn random_app_proof(
         },
     };
 
-    Ok(Json(response))
+    Ok(QosJson(response))
 }
 
 async fn quorum_key_encrypt(
     State(state): State<AppState>,
     Json(request): Json<QuorumKeyEncryptRequest>,
-) -> Result<Json<QuorumKeyEncryptResponse>, AppError> {
+) -> Result<QosJson<QuorumKeyEncryptResponse>, AppError> {
     let quorum_key = state
         .quorum_key_handle
         .get_quorum_key()
@@ -184,13 +214,13 @@ async fn quorum_key_encrypt(
         .encrypt(request.plaintext.as_bytes())
         .map_err(|e| AppError::internal(format!("failed to encrypt plaintext: {e:?}")))?;
 
-    Ok(Json(QuorumKeyEncryptResponse { ciphertext }))
+    Ok(QosJson(QuorumKeyEncryptResponse { ciphertext }))
 }
 
 async fn quorum_key_decrypt(
     State(state): State<AppState>,
     Json(request): Json<QuorumKeyDecryptRequest>,
-) -> Result<Json<QuorumKeyDecryptResponse>, AppError> {
+) -> Result<QosJson<QuorumKeyDecryptResponse>, AppError> {
     let ciphertext = qos_hex::decode(&request.ciphertext)
         .map_err(|e| AppError::bad_request(format!("invalid ciphertext hex: {e:?}")))?;
     let quorum_key = state
@@ -203,7 +233,7 @@ async fn quorum_key_decrypt(
     let plaintext = String::from_utf8(plaintext.to_vec())
         .map_err(|e| AppError::bad_request(format!("decrypted plaintext is not UTF-8: {e}")))?;
 
-    Ok(Json(QuorumKeyDecryptResponse { plaintext }))
+    Ok(QosJson(QuorumKeyDecryptResponse { plaintext }))
 }
 
 #[cfg(test)]
@@ -215,6 +245,7 @@ mod tests {
     use qos_core::handles::{EphemeralKeyHandle, QuorumKeyHandle};
     use qos_p256::{P256Pair, P256Public};
     use tower::ServiceExt;
+    use tvc_axum::ResponseSigningLayer;
 
     async fn body_string(body: Body) -> String {
         let bytes = body
@@ -255,6 +286,74 @@ mod tests {
         ));
 
         (app, temp_dir)
+    }
+
+    fn signed_router_with_temp_keys() -> (Router, tempfile::TempDir) {
+        let ephemeral_key = P256Pair::generate().expect("failed to generate ephemeral key");
+        let quorum_key = P256Pair::generate().expect("failed to generate quorum key");
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+        let ephemeral_key_path = temp_dir.path().join("ephemeral.secret");
+        let quorum_key_path = temp_dir.path().join("quorum.secret");
+
+        ephemeral_key
+            .to_hex_file(&ephemeral_key_path)
+            .expect("failed to write ephemeral key");
+        quorum_key
+            .to_hex_file(&quorum_key_path)
+            .expect("failed to write quorum key");
+
+        let ephemeral_key_handle = EphemeralKeyHandle::new(
+            ephemeral_key_path
+                .to_str()
+                .expect("temp path should be utf8")
+                .to_string(),
+        );
+        let app = router_with_state(AppState::new(
+            ephemeral_key_handle.clone(),
+            QuorumKeyHandle::new(
+                quorum_key_path
+                    .to_str()
+                    .expect("temp path should be utf8")
+                    .to_string(),
+            ),
+        ))
+        .layer(ResponseSigningLayer::new(ephemeral_key_handle));
+
+        (app, temp_dir)
+    }
+
+    async fn signed_body(response: Response) -> Vec<u8> {
+        let public_key = response
+            .headers()
+            .get("x-tvc-ephemeral-public-key")
+            .expect("public key header should exist")
+            .to_str()
+            .expect("public key header should be ascii")
+            .to_owned();
+        let signature = response
+            .headers()
+            .get("x-tvc-response-signature")
+            .expect("signature header should exist")
+            .to_str()
+            .expect("signature header should be ascii")
+            .to_owned();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes()
+            .to_vec();
+
+        let public_key_bytes = qos_hex::decode(&public_key).expect("public key should hex decode");
+        let public_key =
+            P256Public::from_bytes(&public_key_bytes).expect("public key should decode");
+        let signature = qos_hex::decode(&signature).expect("signature should hex decode");
+        public_key
+            .verify(&body, &signature)
+            .expect("response signature should verify");
+
+        body
     }
 
     #[tokio::test]
@@ -314,7 +413,11 @@ mod tests {
         let body = body_string(response.into_body()).await;
         let json: serde_json::Value =
             serde_json::from_str(&body).expect("response is not valid JSON");
-        assert!(json["time"].is_u64(), "time field should be a number");
+        json["time"]
+            .as_str()
+            .expect("time field should be a string")
+            .parse::<u64>()
+            .expect("time field should be a unix timestamp");
     }
 
     #[tokio::test]
@@ -336,8 +439,11 @@ mod tests {
             serde_json::from_str(&body).expect("response is not valid JSON");
 
         let random_number = json["payload"]["random_number"]
-            .as_u64()
-            .expect("random_number should be a JSON number");
+            .as_str()
+            .expect("random_number should be a string");
+        random_number
+            .parse::<u64>()
+            .expect("random_number should be a u64");
         let payload = json["proof"]["payload"]
             .as_str()
             .expect("proof payload should be a string");
@@ -345,7 +451,7 @@ mod tests {
             serde_json::from_str(payload).expect("payload is not valid JSON");
         assert_eq!(
             payload_json,
-            serde_json::json!({"random_number": random_number.to_string()})
+            serde_json::json!({"random_number": random_number})
         );
 
         let public_key = P256Public::from_bytes(
@@ -425,6 +531,45 @@ mod tests {
         assert_eq!(response.status(), 200);
         let body = body_string(response.into_body()).await;
         assert_eq!(body, r#"{"foo":"bar"}"#);
+    }
+
+    #[tokio::test]
+    async fn signs_json_response_body() {
+        let (app, _temp_dir) = signed_router_with_temp_keys();
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = signed_body(response).await;
+        let json: serde_json::Value =
+            serde_json::from_slice(&body).expect("response is not valid JSON");
+        assert_eq!(json["status"], "healthy");
+    }
+
+    #[tokio::test]
+    async fn signs_echo_response_body() {
+        let (app, _temp_dir) = signed_router_with_temp_keys();
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/echo")
+                    .body(Body::from("hello echo"))
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = signed_body(response).await;
+        assert_eq!(body, b"hello echo");
     }
 
     #[tokio::test]

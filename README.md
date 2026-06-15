@@ -14,10 +14,10 @@ $ curl localhost:44020/hello_world
 {"message":"hello world"}
 
 $ curl localhost:44020/time
-{"time":1741048558}
+{"time":"1741048558"}
 
 $ curl localhost:44020/random_app_proof
-{"random_number":"12345","proof":{"public_key":"...","payload":"{\"random_number\":\"12345\"}","signature":"..."}}
+{"payload":{"random_number":"12345"},"proof":{"public_key":"...","payload":"{\"random_number\":\"12345\"}","signature":"..."}}
 
 $ curl -X POST \
   -H 'content-type: application/json' \
@@ -40,6 +40,19 @@ $ curl localhost:44020/metrics
 tvc_http_request_duration_ms_bucket{method="GET",path="/health",status="200",le="1"} 1
 ...
 ```
+
+JSON endpoint responses are serialized through `tvc_axum::QosJson`, which uses
+`qos_json` canonical JSON bytes rather than `serde_json` response serialization.
+Integer values are emitted in the `qos_json` canonical decimal-string form.
+
+Every response, including raw `/echo` bodies and Prometheus `/metrics` text,
+includes these headers:
+
+- `x-tvc-ephemeral-public-key`
+- `x-tvc-response-signature`
+
+Both values are hex-encoded. The signature verifies over the exact response body
+bytes using the `x-tvc-ephemeral-public-key` public key and `qos_p256`.
 
 ## Development
 
@@ -83,6 +96,7 @@ make out/helloworld/index.json
 crates/
   helloworld/     # REST server binary
   metrics/        # Prometheus metrics Tower middleware
+  tvc-axum/       # Axum QosJson response and response-signing adapters
   e2e/            # End-to-end tests
 images/
   helloworld/     # Containerfile for OCI image

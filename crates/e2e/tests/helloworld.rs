@@ -1,7 +1,34 @@
-#![allow(missing_docs, clippy::unwrap_used)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use e2e::TestArgs;
 use qos_p256::P256Public;
+
+async fn verified_body(resp: reqwest::Response) -> Vec<u8> {
+    let public_key = resp
+        .headers()
+        .get("x-tvc-ephemeral-public-key")
+        .expect("public key header should exist")
+        .to_str()
+        .expect("public key header should be ascii")
+        .to_owned();
+    let signature = resp
+        .headers()
+        .get("x-tvc-response-signature")
+        .expect("signature header should exist")
+        .to_str()
+        .expect("signature header should be ascii")
+        .to_owned();
+    let body = resp.bytes().await.unwrap().to_vec();
+
+    let public_key_bytes = qos_hex::decode(&public_key).expect("public key should hex decode");
+    let public_key = P256Public::from_bytes(&public_key_bytes).expect("public key should decode");
+    let signature = qos_hex::decode(&signature).expect("signature should hex decode");
+    public_key
+        .verify(&body, &signature)
+        .expect("response signature should verify");
+
+    body
+}
 
 #[tokio::test]
 async fn test_health() {
@@ -13,7 +40,8 @@ async fn test_health() {
             .await
             .unwrap();
         assert_eq!(resp.status(), 200);
-        let json: serde_json::Value = resp.json().await.unwrap();
+        let body = verified_body(resp).await;
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["status"], "healthy");
     }
     e2e::Builder::new().execute(test).await;
@@ -46,10 +74,11 @@ async fn test_time() {
             .unwrap();
         assert_eq!(resp.status(), 200);
         let json: serde_json::Value = resp.json().await.unwrap();
-        assert!(
-            json["time"].is_u64(),
-            "time field should be a unix timestamp"
-        );
+        json["time"]
+            .as_str()
+            .expect("time field should be a string")
+            .parse::<u64>()
+            .expect("time field should be a unix timestamp");
     }
     e2e::Builder::new().execute(test).await;
 }
@@ -66,12 +95,13 @@ async fn test_random_app_proof() {
         assert_eq!(resp.status(), 200);
         let json: serde_json::Value = resp.json().await.unwrap();
 
-        let random_number = json["payload"]["random_number"].as_u64().unwrap();
+        let random_number = json["payload"]["random_number"].as_str().unwrap();
+        random_number.parse::<u64>().unwrap();
         let payload = json["proof"]["payload"].as_str().unwrap();
         let payload_json: serde_json::Value = serde_json::from_str(payload).unwrap();
         assert_eq!(
             payload_json,
-            serde_json::json!({"random_number": random_number.to_string()})
+            serde_json::json!({"random_number": random_number})
         );
 
         let public_key_bytes =
@@ -123,8 +153,8 @@ async fn test_echo() {
             .await
             .unwrap();
         assert_eq!(resp.status(), 200);
-        let body = resp.text().await.unwrap();
-        assert_eq!(body, "hello echo");
+        let body = verified_body(resp).await;
+        assert_eq!(body, b"hello echo");
     }
     e2e::Builder::new().execute(test).await;
 }
