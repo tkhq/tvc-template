@@ -3,6 +3,13 @@
 use e2e::TestArgs;
 use qos_p256::P256Public;
 
+fn json_u64(value: &serde_json::Value) -> u64 {
+    value
+        .as_u64()
+        .or_else(|| value.as_str().and_then(|value| value.parse().ok()))
+        .unwrap()
+}
+
 #[tokio::test]
 async fn test_health() {
     async fn test(test_args: TestArgs) {
@@ -47,8 +54,8 @@ async fn test_time() {
         assert_eq!(resp.status(), 200);
         let json: serde_json::Value = resp.json().await.unwrap();
         assert!(
-            json["time"].is_u64(),
-            "time field should be a unix timestamp"
+            json_u64(&json["time"]) > 0,
+            "time field should be a unix timestamp or numeric string"
         );
     }
     e2e::Builder::new().execute(test).await;
@@ -66,7 +73,7 @@ async fn test_random_app_proof() {
         assert_eq!(resp.status(), 200);
         let json: serde_json::Value = resp.json().await.unwrap();
 
-        let random_number = json["payload"]["random_number"].as_u64().unwrap();
+        let random_number = json_u64(&json["payload"]["random_number"]);
         let payload = json["proof"]["payload"].as_str().unwrap();
         let payload_json: serde_json::Value = serde_json::from_str(payload).unwrap();
         assert_eq!(
@@ -236,8 +243,6 @@ async fn test_metrics() {
         );
 
         let body = resp.bytes().await.unwrap();
-        // The metrics endpoint is signed too (adding headers does not break
-        // the Prometheus text body).
         assert_response_signature(&headers, &body);
 
         let body = String::from_utf8(body.to_vec()).unwrap();

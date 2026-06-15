@@ -2,6 +2,7 @@
 members = [
   "crates/e2e",
   "crates/metrics",
+  "crates/tvc-axum",
   "crates/helloworld",
 ]
 

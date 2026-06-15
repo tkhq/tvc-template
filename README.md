@@ -17,7 +17,7 @@ $ curl localhost:44020/time
 {"time":1741048558}
 
 $ curl localhost:44020/random_app_proof
-{"random_number":"12345","proof":{"public_key":"...","payload":"{\"random_number\":\"12345\"}","signature":"..."}}
+{"payload":{"random_number":12345},"proof":{"public_key":"...","payload":"{\"random_number\":\"12345\"}","signature":"..."}}
 
 $ curl -X POST \
   -H 'content-type: application/json' \
@@ -45,9 +45,10 @@ tvc_http_request_duration_ms_bucket{method="GET",path="/health",status="200",le=
 
 Every response is signed with the enclave's ephemeral
 [`qos_p256`](https://crates.io/crates/qos_p256) key (the same key used by
-`/random_app_proof`). A Tower middleware layer buffers each response body,
-signs the exact body bytes, and attaches two hex-encoded headers without
-otherwise changing the status, body, or content type:
+`/random_app_proof`). The reusable `tvc-axum` crate provides a Tower
+middleware layer that buffers each response body, signs the exact body bytes,
+and attaches two hex-encoded headers without otherwise changing the status,
+body, or content type:
 
 | Header | Contents |
 | --- | --- |
@@ -119,6 +120,7 @@ make out/helloworld/index.json
 crates/
   helloworld/     # REST server binary
   metrics/        # Prometheus metrics Tower middleware
+  tvc-axum/       # Reusable Axum adapters (QosJson and response signing)
   e2e/            # End-to-end tests
 images/
   helloworld/     # Containerfile for OCI image

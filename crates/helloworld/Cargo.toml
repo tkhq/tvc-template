@@ -12,10 +12,9 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
-http-body-util = { workspace = true }
 metrics = { path = "../metrics" }
+tvc-axum = { path = "../tvc-axum" }
 qos_core = { workspace = true }
 qos_hex = { workspace = true, features = ["serde"] }
 qos_json = { workspace = true }

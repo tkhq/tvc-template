@@ -2,9 +2,8 @@
 //! qos_p256 key.
 //!
 //! The layer buffers each response body, signs the exact body bytes with the
-//! enclave's ephemeral [`P256Pair`](qos_p256::P256Pair) (the same key used by
-//! the `random_app_proof` route), and attaches two hex-encoded headers without
-//! otherwise altering the response:
+//! enclave's ephemeral key (the same source used by app-proof routes), and
+//! attaches two hex-encoded headers without otherwise altering the response:
 //!
 //! - [`PUBLIC_KEY_HEADER`] (`x-tvc-ephemeral-public-key`): the ephemeral
 //!   public key as `public_key().to_bytes()`.
@@ -33,9 +32,8 @@ pub const SIGNATURE_HEADER: HeaderName = HeaderName::from_static("x-tvc-response
 
 /// Tower layer that signs every response body with the ephemeral qos_p256 key.
 ///
-/// Construct it with the same [`EphemeralKeyHandle`] used to build the
-/// application state so that the signing key matches the enclave's ephemeral
-/// key.
+/// Construct it with the same [`EphemeralKeyHandle`] used to build application
+/// state so that the signing key matches the enclave's ephemeral key.
 #[derive(Debug, Clone)]
 pub struct ResponseSigningLayer {
     ephemeral_key_handle: EphemeralKeyHandle<String>,
@@ -110,8 +108,6 @@ async fn sign_response(
         Ok(collected) => collected.to_bytes(),
         Err(error) => {
             tracing::error!("failed to buffer response body for signing: {error}");
-            // Body is already consumed and unrecoverable; surface an empty body
-            // rather than panicking.
             return Response::from_parts(parts, Body::empty());
         }
     };
@@ -126,7 +122,6 @@ async fn sign_response(
             }
         }
         Err(error) => {
-            // Preserve the response body even if signing fails; just log it.
             tracing::error!("failed to sign response body: {error}");
         }
     }
@@ -154,48 +149,49 @@ fn sign_bytes(
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-    use crate::router::{AppState, router_with_state};
-    use axum::Router;
-    use axum::http::Request;
-    use qos_core::handles::{EphemeralKeyHandle, QuorumKeyHandle};
+    use crate::QosJson;
+    use axum::{Router, http::Request, routing::get, routing::post};
     use qos_p256::{P256Pair, P256Public};
+    use serde::Serialize;
     use tower::ServiceExt;
 
-    /// Build a router backed by freshly generated, on-disk ephemeral and
-    /// quorum keys so the signing layer can load and use the ephemeral key.
-    fn router_with_temp_keys() -> (Router, tempfile::TempDir) {
+    #[derive(Serialize)]
+    struct HealthResponse {
+        status: String,
+    }
+
+    fn router_with_temp_key() -> (Router, tempfile::TempDir) {
         let ephemeral_key = P256Pair::generate().expect("failed to generate ephemeral key");
-        let quorum_key = P256Pair::generate().expect("failed to generate quorum key");
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let ephemeral_key_path = temp_dir.path().join("ephemeral.secret");
-        let quorum_key_path = temp_dir.path().join("quorum.secret");
 
         ephemeral_key
             .to_hex_file(&ephemeral_key_path)
             .expect("failed to write ephemeral key");
-        quorum_key
-            .to_hex_file(&quorum_key_path)
-            .expect("failed to write quorum key");
 
-        let app = router_with_state(AppState::new(
-            EphemeralKeyHandle::new(
+        let app = Router::new()
+            .route(
+                "/health",
+                get(|| async {
+                    QosJson(HealthResponse {
+                        status: "healthy".to_string(),
+                    })
+                }),
+            )
+            .route(
+                "/echo",
+                post(|body: Body| async move { Response::new(body) }),
+            )
+            .layer(ResponseSigningLayer::new(EphemeralKeyHandle::new(
                 ephemeral_key_path
                     .to_str()
                     .expect("temp path should be utf8")
                     .to_string(),
-            ),
-            QuorumKeyHandle::new(
-                quorum_key_path
-                    .to_str()
-                    .expect("temp path should be utf8")
-                    .to_string(),
-            ),
-        ));
+            )));
 
         (app, temp_dir)
     }
 
-    /// Run a request and return the response status, headers, and body bytes.
     async fn send(
         app: Router,
         request: Request<Body>,
@@ -216,7 +212,6 @@ mod tests {
         (status, headers, body)
     }
 
-    /// Assert the signature headers are present and verify over the body bytes.
     fn assert_signature_verifies(headers: &axum::http::HeaderMap, body: &[u8]) {
         let public_key_hex = headers
             .get(PUBLIC_KEY_HEADER)
@@ -242,7 +237,7 @@ mod tests {
 
     #[tokio::test]
     async fn json_endpoint_body_preserved_and_signed() {
-        let (app, _temp_dir) = router_with_temp_keys();
+        let (app, _temp_dir) = router_with_temp_key();
         let (status, headers, body) = send(
             app,
             Request::builder()
@@ -252,19 +247,16 @@ mod tests {
         )
         .await;
 
-        // Body is unchanged.
         assert_eq!(status, 200);
         let json: serde_json::Value =
             serde_json::from_slice(&body).expect("response is not valid JSON");
         assert_eq!(json["status"], "healthy");
-
-        // Signature headers are present and verify over the exact body bytes.
         assert_signature_verifies(&headers, &body);
     }
 
     #[tokio::test]
     async fn text_endpoint_body_preserved_and_signed() {
-        let (app, _temp_dir) = router_with_temp_keys();
+        let (app, _temp_dir) = router_with_temp_key();
         let payload = "hello signed echo";
         let (status, headers, body) = send(
             app,
@@ -276,21 +268,18 @@ mod tests {
         )
         .await;
 
-        // Plain-text body is echoed back unchanged.
         assert_eq!(status, 200);
         assert_eq!(body, payload.as_bytes());
-
-        // Signature headers are present and verify over the exact body bytes.
         assert_signature_verifies(&headers, &body);
     }
 
     #[tokio::test]
     async fn tampered_body_fails_verification() {
-        let (app, _temp_dir) = router_with_temp_keys();
+        let (app, _temp_dir) = router_with_temp_key();
         let (_status, headers, body) = send(
             app,
             Request::builder()
-                .uri("/hello_world")
+                .uri("/health")
                 .body(Body::empty())
                 .expect("failed to build request"),
         )
@@ -314,7 +303,6 @@ mod tests {
         .expect("hex");
         let public_key = P256Public::from_bytes(&public_key_bytes).expect("decode");
 
-        // Flip a byte in the body; verification must fail.
         let mut tampered = body.clone();
         tampered.push(b'!');
         assert!(

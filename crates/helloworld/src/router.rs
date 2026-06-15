@@ -1,6 +1,5 @@
 //! Router for the Hello World REST server
 use crate::response::AppError;
-use crate::signing::ResponseSigningLayer;
 use axum::{
     Json, Router,
     body::Body,
@@ -102,10 +101,6 @@ pub fn router() -> Router {
 
 /// Build the application router with the given state.
 pub fn router_with_state(state: AppState) -> Router {
-    // Sign every response body with the same ephemeral qos_p256 key that the
-    // application state exposes (the key used by `random_app_proof`).
-    let signing_layer = ResponseSigningLayer::new(state.ephemeral_key_handle.clone());
-
     Router::new()
         .route("/health", get(health))
         .route("/hello_world", get(hello_world))
@@ -114,7 +109,6 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
-        .layer(signing_layer)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -231,6 +225,13 @@ mod tests {
         String::from_utf8(bytes.to_vec()).expect("invalid utf8")
     }
 
+    fn json_u64(value: &serde_json::Value) -> u64 {
+        value
+            .as_u64()
+            .or_else(|| value.as_str().and_then(|value| value.parse().ok()))
+            .expect("value should be a u64 or numeric string")
+    }
+
     fn router_with_temp_keys() -> (Router, tempfile::TempDir) {
         let ephemeral_key = P256Pair::generate().expect("failed to generate ephemeral key");
         let quorum_key = P256Pair::generate().expect("failed to generate quorum key");
@@ -320,7 +321,10 @@ mod tests {
         let body = body_string(response.into_body()).await;
         let json: serde_json::Value =
             serde_json::from_str(&body).expect("response is not valid JSON");
-        assert!(json["time"].is_u64(), "time field should be a number");
+        assert!(
+            json_u64(&json["time"]) > 0,
+            "time field should be a unix timestamp"
+        );
     }
 
     #[tokio::test]
@@ -341,9 +345,7 @@ mod tests {
         let json: serde_json::Value =
             serde_json::from_str(&body).expect("response is not valid JSON");
 
-        let random_number = json["payload"]["random_number"]
-            .as_u64()
-            .expect("random_number should be a JSON number");
+        let random_number = json_u64(&json["payload"]["random_number"]);
         let payload = json["proof"]["payload"]
             .as_str()
             .expect("proof payload should be a string");
