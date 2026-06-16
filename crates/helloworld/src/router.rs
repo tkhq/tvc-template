@@ -141,20 +141,7 @@ async fn echo(body: Body) -> Response {
     Response::new(body)
 }
 
-/// Fetch the current Bitcoin price in USD from CoinGecko and return it as JSON.
-///
-/// The outbound request is made with a `reqwest` client backed by `rustls-tls`,
-/// so the TLS handshake and server-certificate verification happen in-process
-/// inside the enclave (QuorumOS verified egress). The enclave ships without
-/// system SSL libraries, so the OpenSSL/native-tls backend is intentionally not
-/// linked.
-///
-/// On success the response is `{"bitcoin_usd": <price>}`. Upstream/transport
-/// failures map to `502 Bad Gateway`.
 async fn btc_price() -> Response {
-    // Build a fresh rustls-backed client per request. This keeps the handler
-    // self-contained and avoids shared mutable state; for higher throughput a
-    // shared client could be stored in router state instead.
     let client = match reqwest::Client::builder()
         .use_rustls_tls()
         // Some upstreams (CoinGecko included) reject requests without an
@@ -179,7 +166,10 @@ async fn btc_price() -> Response {
             tracing::error!("coingecko request failed: {e}");
             return (
                 StatusCode::BAD_GATEWAY,
-                axum::Json(json!({"error": "failed to reach price provider"})),
+                axum::Json(json!({
+                    "error": "failed to reach price provider",
+                    "coingecko_error": e.to_string(),
+                })),
             )
                 .into_response();
         }

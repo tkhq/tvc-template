@@ -37,10 +37,6 @@ hello
 $ curl localhost:44020/btc_price
 {"bitcoin_usd":64225.0}
 
-# This template returns `/btc_price` as unsigned JSON. Production callers should
-# verify it through caller-to-TVC TLS or have the enclave sign the price payload,
-# as shown by `/random_app_proof`.
-
 $ curl localhost:44020/metrics
 # HELP tvc_http_request_duration_ms HTTP request duration in milliseconds
 # TYPE tvc_http_request_duration_ms histogram
