@@ -11,14 +11,12 @@ workspace = true
 [dependencies]
 axum = { workspace = true, features = ["http1", "tokio"] }
 http-body-util = { workspace = true }
-qos_core = { workspace = true }
 qos_hex = { workspace = true }
 qos_json = { workspace = true }
+qos_p256 = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 tower = { workspace = true }
 
 [dev-dependencies]
-qos_p256 = { workspace = true }
-tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }

@@ -1001,7 +1001,6 @@ dependencies = [
  "rand 0.9.2",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "tower",
  "tower-http",
@@ -2961,12 +2960,10 @@ version = "0.2.0"
 dependencies = [
  "axum",
  "http-body-util",
- "qos_core",
  "qos_hex",
  "qos_json",
  "qos_p256",
  "serde",
- "tempfile",
  "tokio",
  "tower",
 ]

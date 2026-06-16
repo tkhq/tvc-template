@@ -4,9 +4,9 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use http_body_util::{BodyExt, Full};
-use qos_core::handles::EphemeralKeyHandle;
 use qos_p256::{P256Pair, P256Public};
 use serde::Serialize;
+use std::sync::Arc;
 use tower::{ServiceBuilder, ServiceExt, service_fn};
 use tvc_axum::{QosJson, ResponseSigningLayer};
 
@@ -25,16 +25,6 @@ async fn body_bytes(response: Response) -> Vec<u8> {
         .expect("body should collect")
         .to_bytes()
         .to_vec()
-}
-
-fn temp_ephemeral_handle() -> (EphemeralKeyHandle<String>, tempfile::TempDir) {
-    let key = P256Pair::generate().expect("key should generate");
-    let temp_dir = tempfile::tempdir().expect("temp dir should create");
-    let key_path = temp_dir.path().join("ephemeral.secret");
-    key.to_hex_file(&key_path).expect("key should write");
-    let path = key_path.to_str().expect("path should be utf8").to_owned();
-
-    (EphemeralKeyHandle::new(path), temp_dir)
 }
 
 #[tokio::test]
@@ -57,9 +47,9 @@ async fn qos_json_body_matches_qos_json_to_vec() {
 
 #[tokio::test]
 async fn response_signing_layer_adds_signature_headers() {
-    let (handle, _temp_dir) = temp_ephemeral_handle();
+    let key = Arc::new(P256Pair::generate().expect("key should generate"));
     let service = ServiceBuilder::new()
-        .layer(ResponseSigningLayer::new(handle))
+        .layer(ResponseSigningLayer::new(key))
         .service(service_fn(|_request: Request<Body>| async {
             Ok::<_, std::convert::Infallible>(Response::new(Body::from("signed body")))
         }));
@@ -80,9 +70,9 @@ async fn response_signing_layer_adds_signature_headers() {
 
 #[tokio::test]
 async fn response_signature_verifies_over_exact_body_bytes() {
-    let (handle, _temp_dir) = temp_ephemeral_handle();
+    let key = Arc::new(P256Pair::generate().expect("key should generate"));
     let service = ServiceBuilder::new()
-        .layer(ResponseSigningLayer::new(handle))
+        .layer(ResponseSigningLayer::new(key))
         .service(service_fn(|_request: Request<Body>| async {
             let body = Full::from("exact bytes");
             Ok::<_, std::convert::Infallible>(Response::new(body))

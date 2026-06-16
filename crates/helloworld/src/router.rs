@@ -1,5 +1,7 @@
 //! Router for the Hello World REST server
 use crate::response::AppError;
+use std::sync::Arc;
+
 use axum::{
     Json, Router,
     body::Body,
@@ -8,10 +10,8 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use qos_core::{
-    EPHEMERAL_KEY_FILE, QUORUM_FILE,
-    handles::{EphemeralKeyHandle, QuorumKeyHandle},
-};
+use qos_core::{EPHEMERAL_KEY_FILE, QUORUM_FILE};
+use qos_p256::P256Pair;
 use serde::{Deserialize, Serialize};
 use tower_http::trace::TraceLayer;
 use tvc_axum::QosJson;
@@ -19,30 +19,47 @@ use tvc_axum::QosJson;
 /// Shared application state.
 #[derive(Clone)]
 pub struct AppState {
-    ephemeral_key_handle: EphemeralKeyHandle<String>,
-    quorum_key_handle: QuorumKeyHandle,
+    ephemeral_key: Arc<P256Pair>,
+    quorum_key: Arc<P256Pair>,
 }
 
 impl AppState {
     /// Create a new application state value.
     #[must_use]
-    pub fn new(
-        ephemeral_key_handle: EphemeralKeyHandle<String>,
-        quorum_key_handle: QuorumKeyHandle,
-    ) -> Self {
+    pub fn new(ephemeral_key: Arc<P256Pair>, quorum_key: Arc<P256Pair>) -> Self {
         Self {
-            ephemeral_key_handle,
-            quorum_key_handle,
+            ephemeral_key,
+            quorum_key,
         }
+    }
+
+    /// Create application state by loading keys from hex files once.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either key file cannot be read or decoded.
+    pub fn from_files(
+        ephemeral_key_file: impl AsRef<std::path::Path>,
+        quorum_key_file: impl AsRef<std::path::Path>,
+    ) -> Result<Self, qos_p256::P256Error> {
+        Ok(Self::new(
+            Arc::new(P256Pair::from_hex_file(ephemeral_key_file)?),
+            Arc::new(P256Pair::from_hex_file(quorum_key_file)?),
+        ))
+    }
+
+    /// Return the loaded ephemeral key for response signing layers.
+    #[must_use]
+    pub fn ephemeral_key(&self) -> Arc<P256Pair> {
+        Arc::clone(&self.ephemeral_key)
     }
 }
 
+#[allow(clippy::expect_used)]
 impl Default for AppState {
     fn default() -> Self {
-        Self::new(
-            EphemeralKeyHandle::new(EPHEMERAL_KEY_FILE.to_string()),
-            QuorumKeyHandle::new(QUORUM_FILE.to_string()),
-        )
+        Self::from_files(EPHEMERAL_KEY_FILE, QUORUM_FILE)
+            .expect("failed to load default application keys")
     }
 }
 
@@ -179,11 +196,8 @@ async fn random_app_proof(
     let payload_bytes = qos_json::to_vec(&proof_payload)
         .map_err(|e| AppError::internal(format!("failed to serialize proof payload: {e}")))?;
 
-    let ephemeral_key = state
-        .ephemeral_key_handle
-        .get_ephemeral_key()
-        .map_err(|e| AppError::internal(format!("failed to load ephemeral key: {e}")))?;
-    let signature = ephemeral_key
+    let signature = state
+        .ephemeral_key
         .sign(&payload_bytes)
         .map_err(|e| AppError::internal(format!("failed to sign proof payload: {e:?}")))?;
     let payload = String::from_utf8(payload_bytes)
@@ -192,7 +206,7 @@ async fn random_app_proof(
     let response = RandomAppProofResponse {
         payload: proof_payload,
         proof: AppProof {
-            public_key: ephemeral_key.public_key().to_bytes(),
+            public_key: state.ephemeral_key.public_key().to_bytes(),
             payload,
             signature,
         },
@@ -205,11 +219,8 @@ async fn quorum_key_encrypt(
     State(state): State<AppState>,
     Json(request): Json<QuorumKeyEncryptRequest>,
 ) -> Result<QosJson<QuorumKeyEncryptResponse>, AppError> {
-    let quorum_key = state
-        .quorum_key_handle
-        .get_quorum_key()
-        .map_err(|e| AppError::internal(format!("failed to load quorum key: {e}")))?;
-    let ciphertext = quorum_key
+    let ciphertext = state
+        .quorum_key
         .public_key()
         .encrypt(request.plaintext.as_bytes())
         .map_err(|e| AppError::internal(format!("failed to encrypt plaintext: {e:?}")))?;
@@ -223,11 +234,8 @@ async fn quorum_key_decrypt(
 ) -> Result<QosJson<QuorumKeyDecryptResponse>, AppError> {
     let ciphertext = qos_hex::decode(&request.ciphertext)
         .map_err(|e| AppError::bad_request(format!("invalid ciphertext hex: {e:?}")))?;
-    let quorum_key = state
-        .quorum_key_handle
-        .get_quorum_key()
-        .map_err(|e| AppError::internal(format!("failed to load quorum key: {e}")))?;
-    let plaintext = quorum_key
+    let plaintext = state
+        .quorum_key
         .decrypt(&ciphertext)
         .map_err(|e| AppError::bad_request(format!("failed to decrypt ciphertext: {e:?}")))?;
     let plaintext = String::from_utf8(plaintext.to_vec())
@@ -242,8 +250,8 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use http_body_util::BodyExt;
-    use qos_core::handles::{EphemeralKeyHandle, QuorumKeyHandle};
     use qos_p256::{P256Pair, P256Public};
+    use std::sync::Arc;
     use tower::ServiceExt;
     use tvc_axum::ResponseSigningLayer;
 
@@ -256,70 +264,19 @@ mod tests {
         String::from_utf8(bytes.to_vec()).expect("invalid utf8")
     }
 
-    fn router_with_temp_keys() -> (Router, tempfile::TempDir) {
-        let ephemeral_key = P256Pair::generate().expect("failed to generate ephemeral key");
-        let quorum_key = P256Pair::generate().expect("failed to generate quorum key");
-        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-        let ephemeral_key_path = temp_dir.path().join("ephemeral.secret");
-        let quorum_key_path = temp_dir.path().join("quorum.secret");
-
-        ephemeral_key
-            .to_hex_file(&ephemeral_key_path)
-            .expect("failed to write ephemeral key");
-        quorum_key
-            .to_hex_file(&quorum_key_path)
-            .expect("failed to write quorum key");
-
-        let app = router_with_state(AppState::new(
-            EphemeralKeyHandle::new(
-                ephemeral_key_path
-                    .to_str()
-                    .expect("temp path should be utf8")
-                    .to_string(),
-            ),
-            QuorumKeyHandle::new(
-                quorum_key_path
-                    .to_str()
-                    .expect("temp path should be utf8")
-                    .to_string(),
-            ),
-        ));
-
-        (app, temp_dir)
+    fn router_with_temp_keys() -> Router {
+        let ephemeral_key =
+            Arc::new(P256Pair::generate().expect("failed to generate ephemeral key"));
+        let quorum_key = Arc::new(P256Pair::generate().expect("failed to generate quorum key"));
+        router_with_state(AppState::new(ephemeral_key, quorum_key))
     }
 
-    fn signed_router_with_temp_keys() -> (Router, tempfile::TempDir) {
-        let ephemeral_key = P256Pair::generate().expect("failed to generate ephemeral key");
-        let quorum_key = P256Pair::generate().expect("failed to generate quorum key");
-        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-        let ephemeral_key_path = temp_dir.path().join("ephemeral.secret");
-        let quorum_key_path = temp_dir.path().join("quorum.secret");
-
-        ephemeral_key
-            .to_hex_file(&ephemeral_key_path)
-            .expect("failed to write ephemeral key");
-        quorum_key
-            .to_hex_file(&quorum_key_path)
-            .expect("failed to write quorum key");
-
-        let ephemeral_key_handle = EphemeralKeyHandle::new(
-            ephemeral_key_path
-                .to_str()
-                .expect("temp path should be utf8")
-                .to_string(),
-        );
-        let app = router_with_state(AppState::new(
-            ephemeral_key_handle.clone(),
-            QuorumKeyHandle::new(
-                quorum_key_path
-                    .to_str()
-                    .expect("temp path should be utf8")
-                    .to_string(),
-            ),
-        ))
-        .layer(ResponseSigningLayer::new(ephemeral_key_handle));
-
-        (app, temp_dir)
+    fn signed_router_with_temp_keys() -> Router {
+        let ephemeral_key =
+            Arc::new(P256Pair::generate().expect("failed to generate ephemeral key"));
+        let quorum_key = Arc::new(P256Pair::generate().expect("failed to generate quorum key"));
+        router_with_state(AppState::new(Arc::clone(&ephemeral_key), quorum_key))
+            .layer(ResponseSigningLayer::new(ephemeral_key))
     }
 
     async fn signed_body(response: Response) -> Vec<u8> {
@@ -358,7 +315,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_health() {
-        let app = router();
+        let app = router_with_temp_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -378,7 +335,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_hello_world() {
-        let app = router();
+        let app = router_with_temp_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -398,7 +355,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_time() {
-        let app = router();
+        let app = router_with_temp_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -422,7 +379,7 @@ mod tests {
 
     #[tokio::test]
     async fn random_app_proof() {
-        let (app, _temp_dir) = router_with_temp_keys();
+        let app = router_with_temp_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -477,7 +434,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_echo_text() {
-        let app = router();
+        let app = router_with_temp_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -496,7 +453,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_echo_empty() {
-        let app = router();
+        let app = router_with_temp_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -515,7 +472,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_echo_json() {
-        let app = router();
+        let app = router_with_temp_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -535,7 +492,7 @@ mod tests {
 
     #[tokio::test]
     async fn signs_json_response_body() {
-        let (app, _temp_dir) = signed_router_with_temp_keys();
+        let app = signed_router_with_temp_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -555,7 +512,7 @@ mod tests {
 
     #[tokio::test]
     async fn signs_echo_response_body() {
-        let (app, _temp_dir) = signed_router_with_temp_keys();
+        let app = signed_router_with_temp_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -574,7 +531,7 @@ mod tests {
 
     #[tokio::test]
     async fn quorum_key_encrypt_and_decrypt_round_trip_utf8_payload() {
-        let (app, _temp_dir) = router_with_temp_keys();
+        let app = router_with_temp_keys();
         let plaintext = "hello TVC world";
         let response = app
             .clone()
@@ -619,7 +576,7 @@ mod tests {
 
     #[tokio::test]
     async fn quorum_key_decrypt_rejects_malformed_ciphertext_hex() {
-        let (app, _temp_dir) = router_with_temp_keys();
+        let app = router_with_temp_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()

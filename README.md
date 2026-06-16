@@ -53,6 +53,15 @@ includes these headers:
 
 Both values are hex-encoded. The signature verifies over the exact response body
 bytes using the `x-tvc-ephemeral-public-key` public key and `qos_p256`.
+Minimal verification looks like:
+
+```rust
+let public_key = P256Public::from_bytes(&qos_hex::decode(public_key_header)?)?;
+let signature = qos_hex::decode(signature_header)?;
+public_key.verify(&response_body_bytes, &signature)?;
+```
+
+See `crates/e2e/tests/helloworld.rs` for an end-to-end verification example.
 
 ## Development
 

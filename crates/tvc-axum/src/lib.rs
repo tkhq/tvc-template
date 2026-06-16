@@ -2,13 +2,14 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use axum::body::{Body, Bytes, HttpBody};
 use axum::http::{HeaderValue, Request, Response, StatusCode, header};
 use axum::response::IntoResponse;
 use http_body_util::BodyExt;
-use qos_core::handles::EphemeralKeyHandle;
+use qos_p256::P256Pair;
 use serde::Serialize;
 
 const EPHEMERAL_PUBLIC_KEY_HEADER: &str = "x-tvc-ephemeral-public-key";
@@ -54,16 +55,14 @@ where
 /// Tower layer that signs every response body with the TVC ephemeral P-256 key.
 #[derive(Clone)]
 pub struct ResponseSigningLayer {
-    ephemeral_key_handle: EphemeralKeyHandle<String>,
+    ephemeral_key: Arc<P256Pair>,
 }
 
 impl ResponseSigningLayer {
-    /// Create a response signing layer using the provided ephemeral key handle.
+    /// Create a response signing layer using the provided ephemeral key.
     #[must_use]
-    pub fn new(ephemeral_key_handle: EphemeralKeyHandle<String>) -> Self {
-        Self {
-            ephemeral_key_handle,
-        }
+    pub fn new(ephemeral_key: Arc<P256Pair>) -> Self {
+        Self { ephemeral_key }
     }
 }
 
@@ -73,7 +72,7 @@ impl<S> tower::Layer<S> for ResponseSigningLayer {
     fn layer(&self, inner: S) -> Self::Service {
         ResponseSigningService {
             inner,
-            ephemeral_key_handle: self.ephemeral_key_handle.clone(),
+            ephemeral_key: Arc::clone(&self.ephemeral_key),
         }
     }
 }
@@ -82,7 +81,7 @@ impl<S> tower::Layer<S> for ResponseSigningLayer {
 #[derive(Clone)]
 pub struct ResponseSigningService<S> {
     inner: S,
-    ephemeral_key_handle: EphemeralKeyHandle<String>,
+    ephemeral_key: Arc<P256Pair>,
 }
 
 impl<S, ReqBody, ResBody> tower::Service<Request<ReqBody>> for ResponseSigningService<S>
@@ -104,7 +103,7 @@ where
 
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
         let future = self.inner.call(request);
-        let ephemeral_key_handle = self.ephemeral_key_handle.clone();
+        let ephemeral_key = Arc::clone(&self.ephemeral_key);
 
         Box::pin(async move {
             let response = future.await?;
@@ -114,10 +113,6 @@ where
                 Err(_) => return Ok(internal_error_response("failed to read response body")),
             };
 
-            let ephemeral_key = match ephemeral_key_handle.get_ephemeral_key() {
-                Ok(key) => key,
-                Err(_) => return Ok(internal_error_response("failed to load ephemeral key")),
-            };
             let signature = match ephemeral_key.sign(&body_bytes) {
                 Ok(signature) => signature,
                 Err(_) => return Ok(internal_error_response("failed to sign response")),
