@@ -38,8 +38,6 @@ $ curl localhost:44020/btc_price
 {"bitcoin_usd":64225.0}
 
 $ curl localhost:44020/metrics
-# HELP tvc_http_request_duration_ms HTTP request duration in milliseconds
-# TYPE tvc_http_request_duration_ms histogram
 tvc_http_request_duration_ms_bucket{method="GET",path="/health",status="200",le="1"} 1
 ...
 ```

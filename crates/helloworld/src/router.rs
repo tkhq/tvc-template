@@ -25,6 +25,7 @@ const COINGECKO_BTC_PRICE_URL: &str =
 pub struct AppState {
     ephemeral_key_handle: EphemeralKeyHandle<String>,
     quorum_key_handle: QuorumKeyHandle,
+    coingecko_client: reqwest::Client,
 }
 
 impl AppState {
@@ -34,9 +35,22 @@ impl AppState {
         ephemeral_key_handle: EphemeralKeyHandle<String>,
         quorum_key_handle: QuorumKeyHandle,
     ) -> Self {
+        Self::new_with_coingecko_client(
+            ephemeral_key_handle,
+            quorum_key_handle,
+            coingecko_client(),
+        )
+    }
+
+    fn new_with_coingecko_client(
+        ephemeral_key_handle: EphemeralKeyHandle<String>,
+        quorum_key_handle: QuorumKeyHandle,
+        coingecko_client: reqwest::Client,
+    ) -> Self {
         Self {
             ephemeral_key_handle,
             quorum_key_handle,
+            coingecko_client,
         }
     }
 }
@@ -47,6 +61,20 @@ impl Default for AppState {
             EphemeralKeyHandle::new(EPHEMERAL_KEY_FILE.to_string()),
             QuorumKeyHandle::new(QUORUM_FILE.to_string()),
         )
+    }
+}
+
+fn coingecko_client() -> reqwest::Client {
+    match reqwest::Client::builder()
+        .use_rustls_tls()
+        .user_agent(concat!("tvc-helloworld/", env!("CARGO_PKG_VERSION")))
+        .build()
+    {
+        Ok(client) => client,
+        Err(e) => {
+            tracing::error!("failed to build CoinGecko HTTP client: {e}");
+            reqwest::Client::new()
+        }
     }
 }
 
@@ -141,26 +169,8 @@ async fn echo(body: Body) -> Response {
     Response::new(body)
 }
 
-async fn btc_price() -> Response {
-    let client = match reqwest::Client::builder()
-        .use_rustls_tls()
-        // Some upstreams (CoinGecko included) reject requests without an
-        // explicit User-Agent with HTTP 403, so set one here.
-        .user_agent(concat!("tvc-helloworld/", env!("CARGO_PKG_VERSION")))
-        .build()
-    {
-        Ok(client) => client,
-        Err(e) => {
-            tracing::error!("failed to build HTTP client: {e}");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                axum::Json(json!({"error": "failed to build HTTP client"})),
-            )
-                .into_response();
-        }
-    };
-
-    let resp = match client.get(COINGECKO_BTC_PRICE_URL).send().await {
+async fn btc_price(State(state): State<AppState>) -> Response {
+    let resp = match state.coingecko_client.get(COINGECKO_BTC_PRICE_URL).send().await {
         Ok(resp) => resp,
         Err(e) => {
             tracing::error!("coingecko request failed: {e}");
@@ -195,13 +205,15 @@ async fn btc_price() -> Response {
             tracing::error!("failed to parse coingecko response: {e}");
             return (
                 StatusCode::BAD_GATEWAY,
-                axum::Json(json!({"error": "failed to parse price provider response"})),
+                axum::Json(json!({
+                    "error": "failed to parse price provider response",
+                    "coingecko_error": e.to_string(),
+                })),
             )
                 .into_response();
         }
     };
 
-    // Expected shape: {"bitcoin": {"usd": <number>}}
     match parse_btc_usd(&payload) {
         Some(price) => (StatusCode::OK, axum::Json(json!({"bitcoin_usd": price}))).into_response(),
         None => {
@@ -333,7 +345,7 @@ mod tests {
             .to_hex_file(&quorum_key_path)
             .expect("failed to write quorum key");
 
-        let app = router_with_state(AppState::new(
+        let app = router_with_state(AppState::new_with_coingecko_client(
             EphemeralKeyHandle::new(
                 ephemeral_key_path
                     .to_str()
@@ -346,9 +358,27 @@ mod tests {
                     .expect("temp path should be utf8")
                     .to_string(),
             ),
+            coingecko_client(),
         ));
 
         (app, temp_dir)
+    }
+
+    #[test]
+    fn app_state_uses_supplied_coingecko_client() {
+        let client = reqwest::Client::new();
+        let state = AppState::new_with_coingecko_client(
+            EphemeralKeyHandle::new("ephemeral.secret".to_string()),
+            QuorumKeyHandle::new("quorum.secret".to_string()),
+            client,
+        );
+
+        let request = state
+            .coingecko_client
+            .get(COINGECKO_BTC_PRICE_URL)
+            .build()
+            .expect("request should build");
+        assert_eq!(request.url().as_str(), COINGECKO_BTC_PRICE_URL);
     }
 
     #[tokio::test]
