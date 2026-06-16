@@ -110,7 +110,7 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/hello_world", get(hello_world))
         .route("/time", get(time))
         .route("/echo", post(echo))
-        .route("/btc-price", get(btc_price))
+        .route("/btc_price", get(btc_price))
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
@@ -150,8 +150,7 @@ async fn echo(body: Body) -> Response {
 /// linked.
 ///
 /// On success the response is `{"bitcoin_usd": <price>}`. Upstream/transport
-/// failures map to `502 Bad Gateway`; a malformed upstream payload maps to
-/// `502 Bad Gateway` as well, since the fault is with the external API.
+/// failures map to `502 Bad Gateway`.
 async fn btc_price() -> Response {
     // Build a fresh rustls-backed client per request. This keeps the handler
     // self-contained and avoids shared mutable state; for higher throughput a
@@ -188,13 +187,14 @@ async fn btc_price() -> Response {
 
     if !resp.status().is_success() {
         let status = resp.status();
-        tracing::error!("coingecko returned non-success status: {status}");
+        let upstream_error = match resp.text().await {
+            Ok(body) => body,
+            Err(e) => format!("failed to read coingecko error response: {e}"),
+        };
+        tracing::error!("coingecko returned non-success status {status}: {upstream_error}");
         return (
             StatusCode::BAD_GATEWAY,
-            axum::Json(json!({
-                "error": "price provider returned an error",
-                "upstream_status": status.as_u16(),
-            })),
+            axum::Json(coingecko_error_json(status, &upstream_error)),
         )
             .into_response();
     }
@@ -225,14 +225,19 @@ async fn btc_price() -> Response {
     }
 }
 
-/// Extract the Bitcoin/USD price from a CoinGecko `simple/price` response body.
-///
-/// Returns `None` if the expected `bitcoin.usd` numeric field is absent.
 fn parse_btc_usd(payload: &serde_json::Value) -> Option<f64> {
     payload
         .get("bitcoin")
         .and_then(|b| b.get("usd"))
         .and_then(serde_json::Value::as_f64)
+}
+
+fn coingecko_error_json(status: StatusCode, upstream_error: &str) -> serde_json::Value {
+    json!({
+        "error": "price provider returned an error",
+        "upstream_status": status.as_u16(),
+        "upstream_error": upstream_error,
+    })
 }
 
 async fn random_app_proof(
@@ -560,6 +565,15 @@ mod tests {
     fn test_parse_btc_usd_empty() {
         let payload = serde_json::json!({});
         assert_eq!(parse_btc_usd(&payload), None);
+    }
+
+    #[test]
+    fn coingecko_error_json_includes_upstream_status_and_error() {
+        let json = coingecko_error_json(StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded");
+
+        assert_eq!(json["error"], "price provider returned an error");
+        assert_eq!(json["upstream_status"], 429);
+        assert_eq!(json["upstream_error"], "rate limit exceeded");
     }
 
     #[tokio::test]
