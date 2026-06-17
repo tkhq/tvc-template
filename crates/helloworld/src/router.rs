@@ -53,6 +53,12 @@ impl AppState {
     pub fn ephemeral_key(&self) -> Arc<P256Pair> {
         Arc::clone(&self.ephemeral_key)
     }
+
+    /// Return the loaded quorum key for response signing layers.
+    #[must_use]
+    pub fn quorum_key(&self) -> Arc<P256Pair> {
+        Arc::clone(&self.quorum_key)
+    }
 }
 
 #[allow(clippy::expect_used)]
@@ -255,6 +261,9 @@ mod tests {
     use tower::ServiceExt;
     use tvc_axum::ResponseSigningLayer;
 
+    const EPHEMERAL_SIGNATURE_HEADER: &str = "x-tvc-ephemeral-signature";
+    const QUORUM_SIGNATURE_HEADER: &str = "x-tvc-quorum-signature";
+
     async fn body_string(body: Body) -> String {
         let bytes = body
             .collect()
@@ -271,28 +280,52 @@ mod tests {
         router_with_state(AppState::new(ephemeral_key, quorum_key))
     }
 
-    fn signed_router_with_temp_keys() -> Router {
+    fn public_key(key: &P256Pair) -> P256Public {
+        P256Public::from_bytes(&key.public_key().to_bytes()).expect("public key should decode")
+    }
+
+    fn signing_payload(body: &[u8]) -> Vec<u8> {
+        format!(r#"{{"body":"{}"}}"#, qos_hex::encode(body)).into_bytes()
+    }
+
+    fn signed_router_with_temp_keys() -> (Router, P256Public, P256Public) {
         let ephemeral_key =
             Arc::new(P256Pair::generate().expect("failed to generate ephemeral key"));
         let quorum_key = Arc::new(P256Pair::generate().expect("failed to generate quorum key"));
-        router_with_state(AppState::new(Arc::clone(&ephemeral_key), quorum_key))
-            .layer(ResponseSigningLayer::new(ephemeral_key))
+        let ephemeral_public_key = public_key(&ephemeral_key);
+        let quorum_public_key = public_key(&quorum_key);
+        let router = router_with_state(AppState::new(
+            Arc::clone(&ephemeral_key),
+            Arc::clone(&quorum_key),
+        ))
+        .layer(
+            ResponseSigningLayer::builder()
+                .ephemeral_key(ephemeral_key)
+                .quorum_key(quorum_key)
+                .build(),
+        );
+
+        (router, ephemeral_public_key, quorum_public_key)
     }
 
-    async fn signed_body(response: Response) -> Vec<u8> {
-        let public_key = response
+    async fn signed_body(
+        response: Response,
+        ephemeral_public_key: &P256Public,
+        quorum_public_key: &P256Public,
+    ) -> Vec<u8> {
+        let ephemeral_signature = response
             .headers()
-            .get("x-tvc-ephemeral-public-key")
-            .expect("public key header should exist")
+            .get(EPHEMERAL_SIGNATURE_HEADER)
+            .expect("ephemeral signature header should exist")
             .to_str()
-            .expect("public key header should be ascii")
+            .expect("ephemeral signature header should be ascii")
             .to_owned();
-        let signature = response
+        let quorum_signature = response
             .headers()
-            .get("x-tvc-response-signature")
-            .expect("signature header should exist")
+            .get(QUORUM_SIGNATURE_HEADER)
+            .expect("quorum signature header should exist")
             .to_str()
-            .expect("signature header should be ascii")
+            .expect("quorum signature header should be ascii")
             .to_owned();
         let body = response
             .into_body()
@@ -302,13 +335,17 @@ mod tests {
             .to_bytes()
             .to_vec();
 
-        let public_key_bytes = qos_hex::decode(&public_key).expect("public key should hex decode");
-        let public_key =
-            P256Public::from_bytes(&public_key_bytes).expect("public key should decode");
-        let signature = qos_hex::decode(&signature).expect("signature should hex decode");
-        public_key
-            .verify(&body, &signature)
-            .expect("response signature should verify");
+        let payload = signing_payload(&body);
+        let ephemeral_signature =
+            qos_hex::decode(&ephemeral_signature).expect("ephemeral signature should hex decode");
+        let quorum_signature =
+            qos_hex::decode(&quorum_signature).expect("quorum signature should hex decode");
+        ephemeral_public_key
+            .verify(&payload, &ephemeral_signature)
+            .expect("ephemeral response signature should verify");
+        quorum_public_key
+            .verify(&payload, &quorum_signature)
+            .expect("quorum response signature should verify");
 
         body
     }
@@ -492,7 +529,7 @@ mod tests {
 
     #[tokio::test]
     async fn signs_json_response_body() {
-        let app = signed_router_with_temp_keys();
+        let (app, ephemeral_public_key, quorum_public_key) = signed_router_with_temp_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -504,7 +541,7 @@ mod tests {
             .expect("failed to execute request");
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = signed_body(response).await;
+        let body = signed_body(response, &ephemeral_public_key, &quorum_public_key).await;
         let json: serde_json::Value =
             serde_json::from_slice(&body).expect("response is not valid JSON");
         assert_eq!(json["status"], "healthy");
@@ -512,7 +549,7 @@ mod tests {
 
     #[tokio::test]
     async fn signs_echo_response_body() {
-        let app = signed_router_with_temp_keys();
+        let (app, ephemeral_public_key, quorum_public_key) = signed_router_with_temp_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -525,7 +562,7 @@ mod tests {
             .expect("failed to execute request");
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = signed_body(response).await;
+        let body = signed_body(response, &ephemeral_public_key, &quorum_public_key).await;
         assert_eq!(body, b"hello echo");
     }
 

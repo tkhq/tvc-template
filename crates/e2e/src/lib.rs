@@ -9,7 +9,7 @@
     clippy::panic
 )]
 
-use qos_p256::P256Pair;
+use qos_p256::{P256Pair, P256Public};
 use std::future::Future;
 use std::net::TcpListener;
 use std::process::Command;
@@ -82,6 +82,10 @@ const HOST_IP: &str = "127.0.0.1";
 pub struct TestArgs {
     /// The base URL for the REST server (e.g. `http://127.0.0.1:12345`)
     pub base_url: String,
+    /// Public key corresponding to the ephemeral response-signing key.
+    pub ephemeral_public_key: P256Public,
+    /// Public key corresponding to the quorum response-signing key.
+    pub quorum_public_key: P256Public,
 }
 
 /// Test harness builder.
@@ -115,12 +119,16 @@ impl Builder {
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let ephemeral_key_path = temp_dir.path().join("qos.ephemeral.key");
         let quorum_key_path = temp_dir.path().join("qos.quorum.key");
-        P256Pair::generate()
-            .expect("failed to generate ephemeral key")
+        let ephemeral_key = P256Pair::generate().expect("failed to generate ephemeral key");
+        let quorum_key = P256Pair::generate().expect("failed to generate quorum key");
+        let ephemeral_public_key = P256Public::from_bytes(&ephemeral_key.public_key().to_bytes())
+            .expect("failed to decode ephemeral public key");
+        let quorum_public_key = P256Public::from_bytes(&quorum_key.public_key().to_bytes())
+            .expect("failed to decode quorum public key");
+        ephemeral_key
             .to_hex_file(&ephemeral_key_path)
             .expect("failed to write ephemeral key");
-        P256Pair::generate()
-            .expect("failed to generate quorum key")
+        quorum_key
             .to_hex_file(&quorum_key_path)
             .expect("failed to write quorum key");
 
@@ -141,7 +149,11 @@ impl Builder {
 
         let base_url = format!("http://{HOST_IP}:{host_port}");
 
-        let test_args = TestArgs { base_url };
+        let test_args = TestArgs {
+            base_url,
+            ephemeral_public_key,
+            quorum_public_key,
+        };
 
         test(test_args).await;
     }

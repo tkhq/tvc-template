@@ -3,29 +3,53 @@
 use e2e::TestArgs;
 use qos_p256::P256Public;
 
-async fn verified_body(resp: reqwest::Response) -> Vec<u8> {
-    let public_key = resp
+const EPHEMERAL_SIGNATURE_HEADER: &str = "x-tvc-ephemeral-signature";
+const QUORUM_SIGNATURE_HEADER: &str = "x-tvc-quorum-signature";
+const SIGNATURE_TIMESTAMP_HEADER: &str = "x-tvc-signature-timestamp";
+
+fn timestamped_signing_payload(body: &[u8], timestamp: &str) -> Vec<u8> {
+    format!(r#"{{"body":"{}","timestamp":"{timestamp}"}}"#, qos_hex::encode(body)).into_bytes()
+}
+
+async fn verified_body(
+    resp: reqwest::Response,
+    ephemeral_public_key: &P256Public,
+    quorum_public_key: &P256Public,
+) -> Vec<u8> {
+    let ephemeral_signature = resp
         .headers()
-        .get("x-tvc-ephemeral-public-key")
-        .expect("public key header should exist")
+        .get(EPHEMERAL_SIGNATURE_HEADER)
+        .expect("ephemeral signature header should exist")
         .to_str()
-        .expect("public key header should be ascii")
+        .expect("ephemeral signature header should be ascii")
         .to_owned();
-    let signature = resp
+    let quorum_signature = resp
         .headers()
-        .get("x-tvc-response-signature")
-        .expect("signature header should exist")
+        .get(QUORUM_SIGNATURE_HEADER)
+        .expect("quorum signature header should exist")
         .to_str()
-        .expect("signature header should be ascii")
+        .expect("quorum signature header should be ascii")
+        .to_owned();
+    let timestamp = resp
+        .headers()
+        .get(SIGNATURE_TIMESTAMP_HEADER)
+        .expect("timestamp header should exist")
+        .to_str()
+        .expect("timestamp header should be ascii")
         .to_owned();
     let body = resp.bytes().await.unwrap().to_vec();
 
-    let public_key_bytes = qos_hex::decode(&public_key).expect("public key should hex decode");
-    let public_key = P256Public::from_bytes(&public_key_bytes).expect("public key should decode");
-    let signature = qos_hex::decode(&signature).expect("signature should hex decode");
-    public_key
-        .verify(&body, &signature)
-        .expect("response signature should verify");
+    let payload = timestamped_signing_payload(&body, &timestamp);
+    let ephemeral_signature =
+        qos_hex::decode(&ephemeral_signature).expect("ephemeral signature should hex decode");
+    let quorum_signature =
+        qos_hex::decode(&quorum_signature).expect("quorum signature should hex decode");
+    ephemeral_public_key
+        .verify(&payload, &ephemeral_signature)
+        .expect("ephemeral response signature should verify");
+    quorum_public_key
+        .verify(&payload, &quorum_signature)
+        .expect("quorum response signature should verify");
 
     body
 }
@@ -40,7 +64,12 @@ async fn test_health() {
             .await
             .unwrap();
         assert_eq!(resp.status(), 200);
-        let body = verified_body(resp).await;
+        let body = verified_body(
+            resp,
+            &test_args.ephemeral_public_key,
+            &test_args.quorum_public_key,
+        )
+        .await;
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["status"], "healthy");
     }
@@ -153,7 +182,12 @@ async fn test_echo() {
             .await
             .unwrap();
         assert_eq!(resp.status(), 200);
-        let body = verified_body(resp).await;
+        let body = verified_body(
+            resp,
+            &test_args.ephemeral_public_key,
+            &test_args.quorum_public_key,
+        )
+        .await;
         assert_eq!(body, b"hello echo");
     }
     e2e::Builder::new().execute(test).await;

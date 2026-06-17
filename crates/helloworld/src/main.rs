@@ -23,10 +23,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_state = AppState::from_files(cli.ephemeral_file, cli.quorum_file)
         .map_err(|e| std::io::Error::other(format!("failed to load application keys: {e:?}")))?;
     let ephemeral_key = app_state.ephemeral_key();
+    let quorum_key = app_state.quorum_key();
     let app = router::router_with_state(app_state)
         .layer(metrics_layer)
         .route("/metrics", metrics::handler(collector))
-        .layer(ResponseSigningLayer::new(ephemeral_key));
+        .layer(
+            ResponseSigningLayer::builder()
+                .ephemeral_key(ephemeral_key)
+                .quorum_key(quorum_key)
+                .include_timestamp(true)
+                .build(),
+        );
 
     let addr = format!("{}:{}", cli.host, cli.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

@@ -48,17 +48,37 @@ Integer values are emitted in the `qos_json` canonical decimal-string form.
 Every response, including raw `/echo` bodies and Prometheus `/metrics` text,
 includes these headers:
 
-- `x-tvc-ephemeral-public-key`
-- `x-tvc-response-signature`
+- `x-tvc-ephemeral-signature`
+- `x-tvc-quorum-signature`
+- `x-tvc-signature-timestamp`
 
-Both values are hex-encoded. The signature verifies over the exact response body
-bytes using the `x-tvc-ephemeral-public-key` public key and `qos_p256`.
-Minimal verification looks like:
+Signature values are hex-encoded. The timestamp is a Unix UTC timestamp included
+because the server opts into timestamped response signing. Signatures verify over
+a `qos_json` canonical signing payload, not directly over the response body:
+
+```json
+{"body":"<hex response body>","timestamp":"<x-tvc-signature-timestamp>"}
+```
+
+Verifiers should use public keys they already trust from setup or attestation,
+not a public key supplied by the signed response. Minimal verification looks
+like:
 
 ```rust
-let public_key = P256Public::from_bytes(&qos_hex::decode(public_key_header)?)?;
-let signature = qos_hex::decode(signature_header)?;
-public_key.verify(&response_body_bytes, &signature)?;
+#[derive(serde::Serialize)]
+struct TimestampedPayload {
+    #[serde(with = "qos_hex::serde")]
+    body: Vec<u8>,
+    #[serde(with = "qos_json::string_or_numeric")]
+    timestamp: u64,
+}
+
+let payload = qos_json::to_vec(&TimestampedPayload {
+    body: response_body_bytes.to_vec(),
+    timestamp: signature_timestamp_header.parse()?,
+})?;
+let signature = qos_hex::decode(ephemeral_signature_header)?;
+trusted_ephemeral_public_key.verify(&payload, &signature)?;
 ```
 
 See `crates/e2e/tests/helloworld.rs` for an end-to-end verification example.
