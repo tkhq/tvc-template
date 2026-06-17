@@ -18,7 +18,10 @@ qos_core = { workspace = true }
 qos_hex = { workspace = true, features = ["serde"] }
 qos_json = { workspace = true }
 rand = "0.9.1"
-serde = { version = "1.0", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+sha2 = { workspace = true }
+ureq = { workspace = true, features = ["json"] }
+url = { workspace = true, features = ["serde"] }
 
 [lints]
 workspace = true
