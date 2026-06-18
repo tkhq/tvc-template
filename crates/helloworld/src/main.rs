@@ -8,7 +8,7 @@ use std::{
 use axum::{Json, Router, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
-use ureq::Resolver;
+use ureq::{Resolver, json};
 
 struct FixedResolver {
     ip_addr: SocketAddr,
@@ -60,7 +60,9 @@ impl Resolver for FixedResolver {
 
 async fn serve() {
     // build our application with a single route
-    let app = Router::new().route("/", axum::routing::post(download));
+    let app = Router::new()
+        .route("/", axum::routing::post(download))
+        .route("/health", axum::routing::get(health));
 
     // Create a TCP listener on port 3000
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
@@ -71,6 +73,10 @@ async fn serve() {
 
     // Start serving requests
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn health() -> impl IntoResponse {
+    axum::Json(json!({"status": "healthy"}))
 }
 
 async fn download(Json(DlRequest { url, ip_override }): Json<DlRequest>) -> impl IntoResponse {
