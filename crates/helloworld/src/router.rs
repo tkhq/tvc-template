@@ -3,7 +3,7 @@ use crate::response::AppError;
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Query, State},
+    extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -21,11 +21,12 @@ use tracing::Level;
 const COINGECKO_BTC_PRICE_URL: &str =
     "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd";
 
-/// Upper bound on a single CoinGecko request. Without this the request can hang
-/// indefinitely inside the enclave's verified egress, in which case the proxy in
-/// front of the app times out and returns a bare `error code: 502` — hiding the
-/// JSON error below. Failing fast lets the app surface a descriptive error.
-const COINGECKO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Upper bound on a single outbound egress request. Without this the request can
+/// hang inside the enclave's verified egress, in which case the qos client in
+/// front of the app times out first and returns a bare `error code: 502` —
+/// hiding the JSON error below. This MUST be shorter than the qos manifest's
+/// `clientTimeoutMs` so the app fails first and can surface a descriptive error.
+const EGRESS_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
 
 /// Shared application state.
 #[derive(Clone)]
@@ -75,8 +76,8 @@ fn http_client() -> reqwest::Client {
     match reqwest::Client::builder()
         .use_rustls_tls()
         .user_agent(concat!("tvc-helloworld/", env!("CARGO_PKG_VERSION")))
-        .timeout(COINGECKO_TIMEOUT)
-        .connect_timeout(COINGECKO_TIMEOUT)
+        .timeout(EGRESS_REQUEST_TIMEOUT)
+        .connect_timeout(EGRESS_REQUEST_TIMEOUT)
         .build()
     {
         Ok(client) => client,
@@ -115,11 +116,6 @@ struct RandomAppProofResponse {
 }
 
 #[derive(Deserialize)]
-struct VerifiedTlsGetParams {
-    url: String,
-}
-
-#[derive(Deserialize)]
 struct QuorumKeyEncryptRequest {
     plaintext: String,
 }
@@ -153,7 +149,7 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/time", get(time))
         .route("/echo", post(echo))
         .route("/btc_price", get(btc_price))
-        .route("/verified_tls_get", get(verified_tls_get))
+        .route("/raw_ip_check", get(raw_ip_check))
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
@@ -273,103 +269,71 @@ fn reqwest_error_kind(e: &reqwest::Error) -> &'static str {
     }
 }
 
-/// Maximum number of response body bytes echoed back by `/verified_tls_get`.
-/// Large responses are truncated so the JSON payload stays manageable.
-const VERIFIED_TLS_GET_MAX_BODY: usize = 64 * 1024;
+/// A well-known, stable Cloudflare anycast IP that answers plain HTTP on port
+/// 80. Using a literal IP (not a hostname) over `http://` (not `https://`)
+/// isolates the enclave's raw egress data path from both DNS resolution and TLS:
+/// if `/raw_ip_check` succeeds but `/btc_price` fails, the problem is DNS or TLS,
+/// not raw TCP egress.
+const RAW_IP_CHECK_URL: &str = "http://1.1.1.1/";
 
-/// Fetch an arbitrary URL through the enclave's verified-TLS egress and report
-/// the outcome. Intended as a debugging aid for exercising egress against
-/// different hosts, e.g. `GET /verified_tls_get?url=google.com`.
+/// Probe raw TCP egress by issuing a plain-HTTP request to a hardcoded IP
+/// (`RAW_IP_CHECK_URL`). Query params are not used because they don't survive
+/// the TVC ingress path. Redirects are disabled so a `3xx` from the raw IP does
+/// not trigger a follow-up request to a hostname (which would reintroduce DNS).
 ///
-/// A successful round-trip always returns `200 OK` with the upstream status in
-/// the `status` field, so the upstream's own status never masks the captured
-/// detail. Only a transport-level failure (connect/timeout/body) returns `502`.
-async fn verified_tls_get(
-    State(state): State<AppState>,
-    Query(params): Query<VerifiedTlsGetParams>,
-) -> Response {
-    // Default to https:// when the caller omits a scheme, so `?url=google.com`
-    // exercises the verified-TLS path rather than failing to parse.
-    let url = normalize_url(&params.url);
-
-    let resp = match state.http_client.get(&url).send().await {
-        Ok(resp) => resp,
+/// Any HTTP status returned (including a redirect) proves raw egress works and
+/// yields `200 OK` with the upstream status in `status`. A transport-level
+/// failure (connect/timeout) returns `502` with a `failure_kind` label.
+async fn raw_ip_check() -> Response {
+    // A dedicated client: redirects disabled so we never resolve a hostname, and
+    // the shared egress timeout so this fails fast like the other egress routes.
+    let client = match reqwest::Client::builder()
+        .use_rustls_tls()
+        .user_agent(concat!("tvc-helloworld/", env!("CARGO_PKG_VERSION")))
+        .timeout(EGRESS_REQUEST_TIMEOUT)
+        .connect_timeout(EGRESS_REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(client) => client,
         Err(e) => {
-            let kind = reqwest_error_kind(&e);
-            tracing::error!("verified_tls_get request to {url} failed ({kind}): {e:?}");
+            tracing::error!("raw_ip_check failed to build http client: {e}");
             return (
-                StatusCode::BAD_GATEWAY,
+                StatusCode::INTERNAL_SERVER_ERROR,
                 axum::Json(json!({
-                    "error": "request failed",
-                    "failure_kind": kind,
+                    "error": "failed to build http client",
                     "request_error": e.to_string(),
-                    "requested_url": url,
                 })),
             )
                 .into_response();
         }
     };
 
-    let status = resp.status();
-    let final_url = resp.url().to_string();
-    let headers: serde_json::Map<String, serde_json::Value> = resp
-        .headers()
-        .iter()
-        .map(|(name, value)| {
+    match client.get(RAW_IP_CHECK_URL).send().await {
+        Ok(resp) => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "ok": true,
+                "requested_url": RAW_IP_CHECK_URL,
+                "status": resp.status().as_u16(),
+                "note": "any status here means raw-TCP egress works (DNS and TLS were bypassed)",
+            })),
+        )
+            .into_response(),
+        Err(e) => {
+            let kind = reqwest_error_kind(&e);
+            tracing::error!("raw_ip_check request to {RAW_IP_CHECK_URL} failed ({kind}): {e:?}");
             (
-                name.as_str().to_owned(),
-                json!(value.to_str().unwrap_or("<non-utf8 header value>")),
-            )
-        })
-        .collect();
-
-    let full_body = match resp.bytes().await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            let kind = reqwest_error_kind(&e);
-            tracing::error!("verified_tls_get failed reading body from {url} ({kind}): {e:?}");
-            return (
                 StatusCode::BAD_GATEWAY,
                 axum::Json(json!({
-                    "error": "failed to read response body",
+                    "ok": false,
+                    "requested_url": RAW_IP_CHECK_URL,
                     "failure_kind": kind,
                     "request_error": e.to_string(),
-                    "requested_url": url,
-                    "final_url": final_url,
-                    "status": status.as_u16(),
                 })),
             )
-                .into_response();
+                .into_response()
         }
-    };
-
-    let truncated = full_body.len() > VERIFIED_TLS_GET_MAX_BODY;
-    let body_slice = &full_body[..full_body.len().min(VERIFIED_TLS_GET_MAX_BODY)];
-    // Bodies may be binary; render lossily so the response is always valid JSON.
-    let body = String::from_utf8_lossy(body_slice).into_owned();
-
-    (
-        StatusCode::OK,
-        axum::Json(json!({
-            "requested_url": url,
-            "final_url": final_url,
-            "status": status.as_u16(),
-            "headers": headers,
-            "body": body,
-            "body_truncated": truncated,
-        })),
-    )
-        .into_response()
-}
-
-/// Prepend `https://` when the caller passes a scheme-less host so bare inputs
-/// like `google.com` resolve to a valid URL.
-fn normalize_url(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if trimmed.contains("://") {
-        trimmed.to_owned()
-    } else {
-        format!("https://{trimmed}")
     }
 }
 
@@ -695,38 +659,6 @@ mod tests {
         assert_eq!(response.status(), 200);
         let body = body_string(response.into_body()).await;
         assert_eq!(body, r#"{"foo":"bar"}"#);
-    }
-
-    #[test]
-    fn test_normalize_url_prepends_https() {
-        assert_eq!(normalize_url("google.com"), "https://google.com");
-    }
-
-    #[test]
-    fn test_normalize_url_preserves_existing_scheme() {
-        assert_eq!(normalize_url("http://example.com"), "http://example.com");
-        assert_eq!(normalize_url("https://example.com"), "https://example.com");
-    }
-
-    #[test]
-    fn test_normalize_url_trims_whitespace() {
-        assert_eq!(normalize_url("  google.com  "), "https://google.com");
-    }
-
-    #[tokio::test]
-    async fn verified_tls_get_requires_url_param() {
-        let app = router();
-        let response = app
-            .oneshot(
-                axum::http::Request::builder()
-                    .uri("/verified_tls_get")
-                    .body(Body::empty())
-                    .expect("failed to build request"),
-            )
-            .await
-            .expect("failed to execute request");
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]
