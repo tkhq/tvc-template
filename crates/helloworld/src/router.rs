@@ -291,9 +291,7 @@ mod tests {
     }
 
     fn signature_input(label: &str, created: u64) -> String {
-        format!(
-            r#"{SIGNATURE_COMPONENTS};created={created};keyid="{label}";alg="{SIGNATURE_ALG}""#
-        )
+        format!(r#"{SIGNATURE_COMPONENTS};created={created};keyid="{label}";alg="{SIGNATURE_ALG}""#)
     }
 
     fn signature_base(
@@ -342,7 +340,9 @@ mod tests {
             .strip_prefix(':')
             .and_then(|value| value.strip_suffix(':'))
             .expect("signature should be an RFC byte sequence");
-        STANDARD.decode(signature).expect("signature should be base64")
+        STANDARD
+            .decode(signature)
+            .expect("signature should be base64")
     }
 
     fn signed_router_with_temp_keys() -> (Router, P256Public, P256Public) {
@@ -380,7 +380,10 @@ mod tests {
         assert!(!response.headers().contains_key("x-tvc-quorum-signature"));
         assert!(!response.headers().contains_key("x-tvc-signature-timestamp"));
         let created = created_from_signature_input(&signature_input_header, "ephemeral");
-        assert_eq!(created_from_signature_input(&signature_input_header, "quorum"), created);
+        assert_eq!(
+            created_from_signature_input(&signature_input_header, "quorum"),
+            created
+        );
         let body = response
             .into_body()
             .collect()

@@ -41,9 +41,7 @@ fn content_digest(body: &[u8]) -> String {
 }
 
 fn signature_input(label: &str, created: u64) -> String {
-    format!(
-        r#"{SIGNATURE_COMPONENTS};created={created};keyid="{label}";alg="{SIGNATURE_ALG}""#
-    )
+    format!(r#"{SIGNATURE_COMPONENTS};created={created};keyid="{label}";alg="{SIGNATURE_ALG}""#)
 }
 
 fn signature_base(
@@ -92,14 +90,20 @@ fn signature_bytes(signature_header: &str, label: &str) -> Vec<u8> {
         .strip_prefix(':')
         .and_then(|value| value.strip_suffix(':'))
         .expect("signature should be an RFC byte sequence");
-    STANDARD.decode(signature).expect("signature should be base64")
+    STANDARD
+        .decode(signature)
+        .expect("signature should be base64")
 }
 
 fn assert_rfc_headers_absent(response: &Response) {
     assert!(!response.headers().contains_key("x-tvc-ephemeral-signature"));
     assert!(!response.headers().contains_key("x-tvc-quorum-signature"));
     assert!(!response.headers().contains_key("x-tvc-signature-timestamp"));
-    assert!(!response.headers().contains_key("x-tvc-ephemeral-public-key"));
+    assert!(
+        !response
+            .headers()
+            .contains_key("x-tvc-ephemeral-public-key")
+    );
 }
 
 #[tokio::test]
@@ -185,7 +189,10 @@ async fn response_signing_builder_adds_configured_ephemeral_and_quorum_signature
     let signature_input_header = header_str(&response, "signature-input").to_owned();
     let signature_header = header_str(&response, "signature").to_owned();
     let created = created_from_signature_input(&signature_input_header, "ephemeral");
-    assert_eq!(created_from_signature_input(&signature_input_header, "quorum"), created);
+    assert_eq!(
+        created_from_signature_input(&signature_input_header, "quorum"),
+        created
+    );
     let body = body_bytes(response).await;
     assert_eq!(digest, content_digest(&body));
     assert_eq!(
@@ -199,7 +206,14 @@ async fn response_signing_builder_adds_configured_ephemeral_and_quorum_signature
 
     ephemeral_public_key
         .verify(
-            &signature_base("GET", "/exact", StatusCode::OK, &digest, "ephemeral", created),
+            &signature_base(
+                "GET",
+                "/exact",
+                StatusCode::OK,
+                &digest,
+                "ephemeral",
+                created,
+            ),
             &signature_bytes(&signature_header, "ephemeral"),
         )
         .expect("ephemeral signature should verify over signing payload");
@@ -244,13 +258,34 @@ async fn response_signature_fails_when_signed_components_are_tampered() {
 
     public_key
         .verify(
-            &signature_base("POST", "/tamper", StatusCode::OK, &digest, "ephemeral", created),
+            &signature_base(
+                "POST",
+                "/tamper",
+                StatusCode::OK,
+                &digest,
+                "ephemeral",
+                created,
+            ),
             &signature,
         )
         .expect("signature should verify over expected signing payload");
     for tampered_base in [
-        signature_base("GET", "/tamper", StatusCode::OK, &digest, "ephemeral", created),
-        signature_base("POST", "/other", StatusCode::OK, &digest, "ephemeral", created),
+        signature_base(
+            "GET",
+            "/tamper",
+            StatusCode::OK,
+            &digest,
+            "ephemeral",
+            created,
+        ),
+        signature_base(
+            "POST",
+            "/other",
+            StatusCode::OK,
+            &digest,
+            "ephemeral",
+            created,
+        ),
         signature_base(
             "POST",
             "/tamper",

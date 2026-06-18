@@ -30,9 +30,7 @@ fn content_digest(body: &[u8]) -> String {
 }
 
 fn signature_input(label: &str, created: u64) -> String {
-    format!(
-        r#"{SIGNATURE_COMPONENTS};created={created};keyid="{label}";alg="{SIGNATURE_ALG}""#
-    )
+    format!(r#"{SIGNATURE_COMPONENTS};created={created};keyid="{label}";alg="{SIGNATURE_ALG}""#)
 }
 
 fn signature_base(
@@ -202,14 +200,8 @@ where
 
             if let Some(ephemeral_key) = ephemeral_key {
                 let signature_input = signature_input("ephemeral", created);
-                let signature_base = signature_base(
-                    &method,
-                    &path,
-                    parts.status,
-                    &digest,
-                    "ephemeral",
-                    created,
-                );
+                let signature_base =
+                    signature_base(&method, &path, parts.status, &digest, "ephemeral", created);
                 let signature = match signature_value(&ephemeral_key, &signature_base) {
                     Some(signature) => signature,
                     None => {

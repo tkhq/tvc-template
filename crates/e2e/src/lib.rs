@@ -12,7 +12,9 @@
 use qos_p256::{P256Pair, P256Public};
 use std::future::Future;
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
 
@@ -76,6 +78,33 @@ fn port_is_available(port: u16) -> bool {
     TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
+fn helloworld_binary() -> PathBuf {
+    static SERVER_BINARY: OnceLock<PathBuf> = OnceLock::new();
+
+    SERVER_BINARY
+        .get_or_init(|| {
+            if let Some(binary) = std::env::var_os("CARGO_BIN_EXE_helloworld") {
+                return PathBuf::from(binary);
+            }
+
+            let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+            let status = Command::new(cargo)
+                .args(["build", "-p", "helloworld"])
+                .status()
+                .expect("failed to build helloworld binary");
+            assert!(status.success(), "failed to build helloworld binary");
+
+            let mut binary = std::env::current_exe().expect("failed to get current test binary");
+            binary.pop();
+            if binary.ends_with("deps") {
+                binary.pop();
+            }
+            binary.push(format!("helloworld{}", std::env::consts::EXE_SUFFIX));
+            binary
+        })
+        .clone()
+}
+
 const HOST_IP: &str = "127.0.0.1";
 
 /// Arguments passed to the `test` function in [`Builder::execute`].
@@ -115,7 +144,7 @@ impl Builder {
         let host_port =
             find_free_port().expect("failed to find a free port after maximum search attempts");
 
-        let server_binary = assert_cmd::cargo::cargo_bin("helloworld");
+        let server_binary = helloworld_binary();
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let ephemeral_key_path = temp_dir.path().join("qos.ephemeral.key");
         let quorum_key_path = temp_dir.path().join("qos.quorum.key");

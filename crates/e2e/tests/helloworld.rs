@@ -1,7 +1,7 @@
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use e2e::TestArgs;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use e2e::TestArgs;
 use qos_p256::P256Public;
 use sha2::{Digest, Sha256};
 
@@ -13,9 +13,7 @@ fn content_digest(body: &[u8]) -> String {
 }
 
 fn signature_input(label: &str, created: u64) -> String {
-    format!(
-        r#"{SIGNATURE_COMPONENTS};created={created};keyid="{label}";alg="{SIGNATURE_ALG}""#
-    )
+    format!(r#"{SIGNATURE_COMPONENTS};created={created};keyid="{label}";alg="{SIGNATURE_ALG}""#)
 }
 
 fn signature_base(
@@ -55,7 +53,9 @@ fn signature_bytes(signature_header: &str, label: &str) -> Vec<u8> {
         .strip_prefix(':')
         .and_then(|value| value.strip_suffix(':'))
         .expect("signature should be an RFC byte sequence");
-    STANDARD.decode(signature).expect("signature should be base64")
+    STANDARD
+        .decode(signature)
+        .expect("signature should be base64")
 }
 
 async fn verified_body(
@@ -91,7 +91,10 @@ async fn verified_body(
     assert!(!resp.headers().contains_key("x-tvc-quorum-signature"));
     assert!(!resp.headers().contains_key("x-tvc-signature-timestamp"));
     let created = created_from_signature_input(&signature_input_header, "ephemeral");
-    assert_eq!(created_from_signature_input(&signature_input_header, "quorum"), created);
+    assert_eq!(
+        created_from_signature_input(&signature_input_header, "quorum"),
+        created
+    );
     let body = resp.bytes().await.unwrap().to_vec();
 
     assert_eq!(digest, content_digest(&body));
