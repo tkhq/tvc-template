@@ -265,7 +265,6 @@ mod tests {
     }
 
     #[tokio::test]
-<<<<<<< HEAD
     async fn btc_price_route_uses_snake_case() {
         let app = router().expect("failed to build router");
         let response = app
@@ -280,9 +279,11 @@ mod tests {
             .expect("failed to execute request");
 
         assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
-=======
+    }
+
+    #[tokio::test]
     async fn diagnostics_routes_reject_unsupported_methods() {
-        let app = router();
+        let app = router().expect("failed to build router");
 
         for uri in ["/diagnostics/raw_ip_check", "/diagnostics/tls_ip_check"] {
             let response = app
@@ -299,7 +300,6 @@ mod tests {
 
             assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
         }
->>>>>>> f15f2ab (feat: add diagnostic endpoints)
     }
 
     #[tokio::test]
