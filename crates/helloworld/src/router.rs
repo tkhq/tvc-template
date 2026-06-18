@@ -12,8 +12,12 @@ use tracing::Level;
 pub use crate::state::AppState;
 
 /// Build the application router with all routes.
-pub fn router() -> Router {
-    router_with_state(AppState::default())
+///
+/// # Errors
+///
+/// Returns an error if the default key files cannot be decoded as P-256 key pairs.
+pub fn router() -> Result<Router, qos_p256::P256Error> {
+    Ok(router_with_state(AppState::try_default()?))
 }
 
 /// Build the application router with the given state.
@@ -42,8 +46,8 @@ mod tests {
     use axum::body::Body;
     use axum::http::StatusCode;
     use http_body_util::BodyExt;
-    use qos_core::handles::{EphemeralKeyHandle, QuorumKeyHandle};
     use qos_p256::{P256Pair, P256Public};
+    use std::sync::Arc;
     use tower::ServiceExt;
 
     async fn body_string(body: Body) -> String {
@@ -55,41 +59,16 @@ mod tests {
         String::from_utf8(bytes.to_vec()).expect("invalid utf8")
     }
 
-    fn router_with_temp_keys() -> (Router, tempfile::TempDir) {
+    fn router_with_generated_keys() -> Router {
         let ephemeral_key = P256Pair::generate().expect("failed to generate ephemeral key");
         let quorum_key = P256Pair::generate().expect("failed to generate quorum key");
-        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-        let ephemeral_key_path = temp_dir.path().join("ephemeral.secret");
-        let quorum_key_path = temp_dir.path().join("quorum.secret");
 
-        ephemeral_key
-            .to_hex_file(&ephemeral_key_path)
-            .expect("failed to write ephemeral key");
-        quorum_key
-            .to_hex_file(&quorum_key_path)
-            .expect("failed to write quorum key");
-
-        let app = router_with_state(AppState::new(
-            EphemeralKeyHandle::new(
-                ephemeral_key_path
-                    .to_str()
-                    .expect("temp path should be utf8")
-                    .to_string(),
-            ),
-            QuorumKeyHandle::new(
-                quorum_key_path
-                    .to_str()
-                    .expect("temp path should be utf8")
-                    .to_string(),
-            ),
-        ));
-
-        (app, temp_dir)
+        router_with_state(AppState::new(Arc::new(ephemeral_key), Arc::new(quorum_key)))
     }
 
     #[tokio::test]
     async fn test_health() {
-        let app = router();
+        let app = router_with_generated_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -109,7 +88,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_hello_world() {
-        let app = router();
+        let app = router_with_generated_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -129,7 +108,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_time() {
-        let app = router();
+        let app = router_with_generated_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -149,7 +128,7 @@ mod tests {
 
     #[tokio::test]
     async fn random_app_proof() {
-        let (app, _temp_dir) = router_with_temp_keys();
+        let app = router_with_generated_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -201,7 +180,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_echo_text() {
-        let app = router();
+        let app = router_with_generated_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -220,7 +199,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_echo_empty() {
-        let app = router();
+        let app = router_with_generated_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -239,7 +218,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_echo_json() {
-        let app = router();
+        let app = router_with_generated_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -259,7 +238,7 @@ mod tests {
 
     #[tokio::test]
     async fn quorum_key_encrypt_and_decrypt_round_trip_utf8_payload() {
-        let (app, _temp_dir) = router_with_temp_keys();
+        let app = router_with_generated_keys();
         let plaintext = "hello TVC world";
         let response = app
             .clone()
@@ -304,7 +283,7 @@ mod tests {
 
     #[tokio::test]
     async fn quorum_key_decrypt_rejects_malformed_ciphertext_hex() {
-        let (app, _temp_dir) = router_with_temp_keys();
+        let app = router_with_generated_keys();
         let response = app
             .oneshot(
                 axum::http::Request::builder()

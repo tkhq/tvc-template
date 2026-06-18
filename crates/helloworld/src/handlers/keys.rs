@@ -63,11 +63,8 @@ pub(crate) async fn random_app_proof(
     let payload_bytes = qos_json::to_vec(&proof_payload)
         .map_err(|e| AppError::internal(format!("failed to serialize proof payload: {e}")))?;
 
-    let ephemeral_key = state
-        .ephemeral_key_handle
-        .get_ephemeral_key()
-        .map_err(|e| AppError::internal(format!("failed to load ephemeral key: {e}")))?;
-    let signature = ephemeral_key
+    let signature = state
+        .ephemeral_key
         .sign(&payload_bytes)
         .map_err(|e| AppError::internal(format!("failed to sign proof payload: {e:?}")))?;
     let payload = String::from_utf8(payload_bytes)
@@ -76,7 +73,7 @@ pub(crate) async fn random_app_proof(
     let response = RandomAppProofResponse {
         payload: proof_payload,
         proof: AppProof {
-            public_key: ephemeral_key.public_key().to_bytes(),
+            public_key: state.ephemeral_key.public_key().to_bytes(),
             payload,
             signature,
         },
@@ -89,11 +86,8 @@ pub(crate) async fn quorum_key_encrypt(
     State(state): State<AppState>,
     Json(request): Json<QuorumKeyEncryptRequest>,
 ) -> Result<Json<QuorumKeyEncryptResponse>, AppError> {
-    let quorum_key = state
-        .quorum_key_handle
-        .get_quorum_key()
-        .map_err(|e| AppError::internal(format!("failed to load quorum key: {e}")))?;
-    let ciphertext = quorum_key
+    let ciphertext = state
+        .quorum_key
         .public_key()
         .encrypt(request.plaintext.as_bytes())
         .map_err(|e| AppError::internal(format!("failed to encrypt plaintext: {e:?}")))?;
@@ -107,11 +101,8 @@ pub(crate) async fn quorum_key_decrypt(
 ) -> Result<Json<QuorumKeyDecryptResponse>, AppError> {
     let ciphertext = qos_hex::decode(&request.ciphertext)
         .map_err(|e| AppError::bad_request(format!("invalid ciphertext hex: {e:?}")))?;
-    let quorum_key = state
-        .quorum_key_handle
-        .get_quorum_key()
-        .map_err(|e| AppError::internal(format!("failed to load quorum key: {e}")))?;
-    let plaintext = quorum_key
+    let plaintext = state
+        .quorum_key
         .decrypt(&ciphertext)
         .map_err(|e| AppError::bad_request(format!("failed to decrypt ciphertext: {e:?}")))?;
     let plaintext = String::from_utf8(plaintext.to_vec())

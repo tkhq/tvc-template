@@ -4,7 +4,7 @@ use clap::Parser;
 use helloworld::cli::Cli;
 use helloworld::router::{self, AppState};
 use metrics::MetricsLayer;
-use qos_core::handles::{EphemeralKeyHandle, QuorumKeyHandle};
+use std::io;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -20,10 +20,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metrics_layer = MetricsLayer::builder().namespace("tvc").build()?;
     let collector = metrics_layer.collector();
 
-    let app_state = AppState::new(
-        EphemeralKeyHandle::new(cli.ephemeral_file),
-        QuorumKeyHandle::new(cli.quorum_file),
-    );
+    let app_state = AppState::from_key_files(cli.ephemeral_file, cli.quorum_file)
+        .map_err(|e| io::Error::other(format!("failed to load app keys: {e:?}")))?;
     let app = router::router_with_state(app_state)
         .layer(metrics_layer)
         .route("/metrics", metrics::handler(collector));
