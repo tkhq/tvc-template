@@ -34,7 +34,7 @@ $ curl -X POST \
 $ curl -X POST -d 'hello' localhost:44020/echo
 hello
 
-$ curl localhost:44020/btc-price
+$ curl localhost:44020/btc_price
 {"bitcoin_usd":64225.0}
 
 $ curl localhost:44020/metrics

@@ -16,12 +16,15 @@ pub struct AppState {
 
 impl AppState {
     /// Create a new application state value.
-    #[must_use]
     pub fn new(
         ephemeral_key_handle: EphemeralKeyHandle<String>,
         quorum_key_handle: QuorumKeyHandle,
-    ) -> Self {
-        Self::new_with_http_client(ephemeral_key_handle, quorum_key_handle, HttpClient::new())
+    ) -> Result<Self, reqwest::Error> {
+        Ok(Self::new_with_http_client(
+            ephemeral_key_handle,
+            quorum_key_handle,
+            HttpClient::new()?,
+        ))
     }
 
     pub(crate) fn new_with_http_client(
@@ -37,11 +40,10 @@ impl AppState {
     }
 }
 
-impl Default for AppState {
-    fn default() -> Self {
-        Self::new(
-            EphemeralKeyHandle::new(EPHEMERAL_KEY_FILE.to_string()),
-            QuorumKeyHandle::new(QUORUM_FILE.to_string()),
-        )
-    }
+/// Create the default application state value.
+pub fn default_app_state() -> Result<AppState, reqwest::Error> {
+    AppState::new(
+        EphemeralKeyHandle::new(EPHEMERAL_KEY_FILE.to_string()),
+        QuorumKeyHandle::new(QUORUM_FILE.to_string()),
+    )
 }
