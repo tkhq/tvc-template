@@ -150,6 +150,7 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/echo", post(echo))
         .route("/btc_price", get(btc_price))
         .route("/raw_ip_check", get(raw_ip_check))
+        .route("/tls_ip_check", get(tls_ip_check))
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
@@ -276,15 +277,22 @@ fn reqwest_error_kind(e: &reqwest::Error) -> &'static str {
 /// not raw TCP egress.
 const RAW_IP_CHECK_URL: &str = "http://1.1.1.1/";
 
-/// Probe raw TCP egress by issuing a plain-HTTP request to a hardcoded IP
-/// (`RAW_IP_CHECK_URL`). Query params are not used because they don't survive
-/// the TVC ingress path. Redirects are disabled so a `3xx` from the raw IP does
-/// not trigger a follow-up request to a hostname (which would reintroduce DNS).
+/// A well-known, stable Cloudflare anycast IP reachable over HTTPS. Its cert
+/// includes `1.1.1.1` as an IP SAN, so rustls validates it without a hostname.
+/// Hitting this over `https://` (vs `http://` for `RAW_IP_CHECK_URL`) exercises
+/// a full TLS handshake — large, full-MTU packets — while still bypassing DNS,
+/// so `/tls_ip_check` vs `/raw_ip_check` isolates a TLS/MTU failure from DNS.
+const TLS_IP_CHECK_URL: &str = "https://1.1.1.1/";
+
+/// Issue a `GET` to a hardcoded IP URL through the enclave's egress and report
+/// the outcome. Query params are not used because they don't survive the TVC
+/// ingress path. Redirects are disabled so a `3xx` from the raw IP does not
+/// trigger a follow-up request to a hostname (which would reintroduce DNS).
 ///
-/// Any HTTP status returned (including a redirect) proves raw egress works and
-/// yields `200 OK` with the upstream status in `status`. A transport-level
+/// Any HTTP status returned (including a redirect) proves egress to `url` works
+/// and yields `200 OK` with the upstream status in `status`. A transport-level
 /// failure (connect/timeout) returns `502` with a `failure_kind` label.
-async fn raw_ip_check() -> Response {
+async fn ip_egress_probe(label: &str, url: &'static str, note: &str) -> Response {
     // A dedicated client: redirects disabled so we never resolve a hostname, and
     // the shared egress timeout so this fails fast like the other egress routes.
     let client = match reqwest::Client::builder()
@@ -297,7 +305,7 @@ async fn raw_ip_check() -> Response {
     {
         Ok(client) => client,
         Err(e) => {
-            tracing::error!("raw_ip_check failed to build http client: {e}");
+            tracing::error!("{label} failed to build http client: {e}");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 axum::Json(json!({
@@ -309,25 +317,25 @@ async fn raw_ip_check() -> Response {
         }
     };
 
-    match client.get(RAW_IP_CHECK_URL).send().await {
+    match client.get(url).send().await {
         Ok(resp) => (
             StatusCode::OK,
             axum::Json(json!({
                 "ok": true,
-                "requested_url": RAW_IP_CHECK_URL,
+                "requested_url": url,
                 "status": resp.status().as_u16(),
-                "note": "any status here means raw-TCP egress works (DNS and TLS were bypassed)",
+                "note": note,
             })),
         )
             .into_response(),
         Err(e) => {
             let kind = reqwest_error_kind(&e);
-            tracing::error!("raw_ip_check request to {RAW_IP_CHECK_URL} failed ({kind}): {e:?}");
+            tracing::error!("{label} request to {url} failed ({kind}): {e:?}");
             (
                 StatusCode::BAD_GATEWAY,
                 axum::Json(json!({
                     "ok": false,
-                    "requested_url": RAW_IP_CHECK_URL,
+                    "requested_url": url,
                     "failure_kind": kind,
                     "request_error": e.to_string(),
                 })),
@@ -335,6 +343,30 @@ async fn raw_ip_check() -> Response {
                 .into_response()
         }
     }
+}
+
+/// Probe raw TCP egress with plain HTTP to a hardcoded IP — bypasses DNS and TLS.
+/// Success here but failure on `/btc_price` means the problem is DNS or TLS.
+async fn raw_ip_check() -> Response {
+    ip_egress_probe(
+        "raw_ip_check",
+        RAW_IP_CHECK_URL,
+        "any status here means raw-TCP egress works (DNS and TLS were bypassed)",
+    )
+    .await
+}
+
+/// Probe TLS egress with HTTPS to a hardcoded IP — bypasses DNS but exercises a
+/// full TLS handshake. Together with `/raw_ip_check`, isolates DNS from TLS/MTU:
+/// if `/raw_ip_check` works and this one times out, TLS/large packets are the
+/// problem; if both work, the `/btc_price` failure is DNS resolution.
+async fn tls_ip_check() -> Response {
+    ip_egress_probe(
+        "tls_ip_check",
+        TLS_IP_CHECK_URL,
+        "success means TLS egress works with DNS bypassed; compare with /raw_ip_check and /btc_price",
+    )
+    .await
 }
 
 fn parse_btc_usd(payload: &serde_json::Value) -> Option<f64> {
