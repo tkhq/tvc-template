@@ -26,7 +26,9 @@ missing_docs = "warn"
 [workspace.dependencies]
 assert_cmd = "2.0"
 axum = { version = "0.8.8", default-features = false }
+base64 = "0.22"
 serde_json = "1.0.142"
+sha2 = "0.10"
 tokio = { version = "1.47", default-features = false }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

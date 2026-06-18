@@ -48,16 +48,33 @@ Integer values are emitted in the `qos_json` canonical decimal-string form.
 Every response, including raw `/echo` bodies and Prometheus `/metrics` text,
 includes these headers:
 
-- `x-tvc-ephemeral-signature`
-- `x-tvc-quorum-signature`
-- `x-tvc-signature-timestamp`
+- `Content-Digest`
+- `Signature-Input`
+- `Signature`
 
-Signature values are hex-encoded. The timestamp is a Unix UTC timestamp included
-because the server opts into timestamped response signing. Signatures verify over
-a `qos_json` canonical signing payload, not directly over the response body:
+`Content-Digest` uses RFC 9530 `sha-256=:BASE64_DIGEST:` over the exact response
+body bytes. `Signature-Input` and `Signature` use the narrow RFC 9421 HTTP
+Message Signatures subset this template needs: P-256 signatures only, with the
+hard-coded algorithm identifier `ecdsa-p256-sha256` and fixed labels
+`ephemeral` and `quorum`.
 
-```json
-{"body":"<hex response body>","timestamp":"<x-tvc-signature-timestamp>"}
+The response signature base binds the request method and path captured by the
+Axum/Tower middleware, the response status, and the content digest:
+
+```text
+"@method": GET
+"@path": /hello_world
+"@status": 200
+"content-digest": sha-256=:...:
+"@signature-params": ("@method" "@path" "@status" "content-digest");created=1741048558;keyid="ephemeral";alg="ecdsa-p256-sha256"
+```
+
+Example response headers:
+
+```http
+Content-Digest: sha-256=:...:
+Signature-Input: ephemeral=("@method" "@path" "@status" "content-digest");created=1741048558;keyid="ephemeral";alg="ecdsa-p256-sha256", quorum=("@method" "@path" "@status" "content-digest");created=1741048558;keyid="quorum";alg="ecdsa-p256-sha256"
+Signature: ephemeral=:...:, quorum=:...:
 ```
 
 Verifiers should use public keys they already trust from setup or attestation,
@@ -65,21 +82,20 @@ not a public key supplied by the signed response. Minimal verification looks
 like:
 
 ```rust
-#[derive(serde::Serialize)]
-struct TimestampedPayload {
-    #[serde(with = "qos_hex::serde")]
-    body: Vec<u8>,
-    #[serde(with = "qos_json::string_or_numeric")]
-    timestamp: u64,
-}
+let digest = format!("sha-256=:{}:", base64::prelude::BASE64_STANDARD.encode(
+    sha2::Sha256::digest(response_body_bytes),
+));
+assert_eq!(content_digest_header, digest);
 
-let payload = qos_json::to_vec(&TimestampedPayload {
-    body: response_body_bytes.to_vec(),
-    timestamp: signature_timestamp_header.parse()?,
-})?;
-let signature = qos_hex::decode(ephemeral_signature_header)?;
-trusted_ephemeral_public_key.verify(&payload, &signature)?;
+let signature_base = format!(
+    "\"@method\": {method}\n\"@path\": {path}\n\"@status\": {status}\n\"content-digest\": {digest}\n\"@signature-params\": {ephemeral_signature_input}"
+);
+let signature = base64::prelude::BASE64_STANDARD.decode(ephemeral_signature_value)?;
+trusted_ephemeral_public_key.verify(signature_base.as_bytes(), &signature)?;
 ```
+
+`qos_json` is still useful for canonical JSON response bodies, but it is not the
+HTTP response signing payload.
 
 See `crates/e2e/tests/helloworld.rs` for an end-to-end verification example.
 

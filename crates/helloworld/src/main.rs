@@ -31,7 +31,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ResponseSigningLayer::builder()
                 .ephemeral_key(ephemeral_key)
                 .quorum_key(quorum_key)
-                .include_timestamp(true)
                 .build(),
         );
 

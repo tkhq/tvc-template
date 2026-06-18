@@ -1,54 +1,111 @@
-#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use e2e::TestArgs;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use qos_p256::P256Public;
+use sha2::{Digest, Sha256};
 
-const EPHEMERAL_SIGNATURE_HEADER: &str = "x-tvc-ephemeral-signature";
-const QUORUM_SIGNATURE_HEADER: &str = "x-tvc-quorum-signature";
-const SIGNATURE_TIMESTAMP_HEADER: &str = "x-tvc-signature-timestamp";
+const SIGNATURE_COMPONENTS: &str = "(\"@method\" \"@path\" \"@status\" \"content-digest\")";
+const SIGNATURE_ALG: &str = "ecdsa-p256-sha256";
 
-fn timestamped_signing_payload(body: &[u8], timestamp: &str) -> Vec<u8> {
-    format!(r#"{{"body":"{}","timestamp":"{timestamp}"}}"#, qos_hex::encode(body)).into_bytes()
+fn content_digest(body: &[u8]) -> String {
+    format!("sha-256=:{}:", STANDARD.encode(Sha256::digest(body)))
+}
+
+fn signature_input(label: &str, created: u64) -> String {
+    format!(
+        r#"{SIGNATURE_COMPONENTS};created={created};keyid="{label}";alg="{SIGNATURE_ALG}""#
+    )
+}
+
+fn signature_base(
+    method: &str,
+    path: &str,
+    status: reqwest::StatusCode,
+    digest: &str,
+    label: &str,
+    created: u64,
+) -> Vec<u8> {
+    format!(
+        "\"@method\": {method}\n\"@path\": {path}\n\"@status\": {}\n\"content-digest\": {digest}\n\"@signature-params\": {}",
+        status.as_u16(),
+        signature_input(label, created)
+    )
+    .into_bytes()
+}
+
+fn label_value<'a>(header: &'a str, label: &str) -> &'a str {
+    header
+        .split(", ")
+        .find_map(|value| value.strip_prefix(&format!("{label}=")))
+        .unwrap_or_else(|| panic!("{label} value should exist"))
+}
+
+fn created_from_signature_input(input: &str, label: &str) -> u64 {
+    let value = label_value(input, label);
+    let created = value
+        .strip_prefix(&format!(r#"{SIGNATURE_COMPONENTS};created="#))
+        .and_then(|value| value.split_once(';').map(|(created, _)| created))
+        .expect("created parameter should exist");
+    created.parse().expect("created should be a unix timestamp")
+}
+
+fn signature_bytes(signature_header: &str, label: &str) -> Vec<u8> {
+    let signature = label_value(signature_header, label)
+        .strip_prefix(':')
+        .and_then(|value| value.strip_suffix(':'))
+        .expect("signature should be an RFC byte sequence");
+    STANDARD.decode(signature).expect("signature should be base64")
 }
 
 async fn verified_body(
     resp: reqwest::Response,
+    method: &str,
+    path: &str,
     ephemeral_public_key: &P256Public,
     quorum_public_key: &P256Public,
 ) -> Vec<u8> {
-    let ephemeral_signature = resp
+    let status = resp.status();
+    let digest = resp
         .headers()
-        .get(EPHEMERAL_SIGNATURE_HEADER)
-        .expect("ephemeral signature header should exist")
+        .get("content-digest")
+        .expect("content-digest header should exist")
         .to_str()
-        .expect("ephemeral signature header should be ascii")
+        .expect("content-digest header should be ascii")
         .to_owned();
-    let quorum_signature = resp
+    let signature_input_header = resp
         .headers()
-        .get(QUORUM_SIGNATURE_HEADER)
-        .expect("quorum signature header should exist")
+        .get("signature-input")
+        .expect("signature-input header should exist")
         .to_str()
-        .expect("quorum signature header should be ascii")
+        .expect("signature-input header should be ascii")
         .to_owned();
-    let timestamp = resp
+    let signature_header = resp
         .headers()
-        .get(SIGNATURE_TIMESTAMP_HEADER)
-        .expect("timestamp header should exist")
+        .get("signature")
+        .expect("signature header should exist")
         .to_str()
-        .expect("timestamp header should be ascii")
+        .expect("signature header should be ascii")
         .to_owned();
+    assert!(!resp.headers().contains_key("x-tvc-ephemeral-signature"));
+    assert!(!resp.headers().contains_key("x-tvc-quorum-signature"));
+    assert!(!resp.headers().contains_key("x-tvc-signature-timestamp"));
+    let created = created_from_signature_input(&signature_input_header, "ephemeral");
+    assert_eq!(created_from_signature_input(&signature_input_header, "quorum"), created);
     let body = resp.bytes().await.unwrap().to_vec();
 
-    let payload = timestamped_signing_payload(&body, &timestamp);
-    let ephemeral_signature =
-        qos_hex::decode(&ephemeral_signature).expect("ephemeral signature should hex decode");
-    let quorum_signature =
-        qos_hex::decode(&quorum_signature).expect("quorum signature should hex decode");
+    assert_eq!(digest, content_digest(&body));
     ephemeral_public_key
-        .verify(&payload, &ephemeral_signature)
+        .verify(
+            &signature_base(method, path, status, &digest, "ephemeral", created),
+            &signature_bytes(&signature_header, "ephemeral"),
+        )
         .expect("ephemeral response signature should verify");
     quorum_public_key
-        .verify(&payload, &quorum_signature)
+        .verify(
+            &signature_base(method, path, status, &digest, "quorum", created),
+            &signature_bytes(&signature_header, "quorum"),
+        )
         .expect("quorum response signature should verify");
 
     body
@@ -66,6 +123,8 @@ async fn test_health() {
         assert_eq!(resp.status(), 200);
         let body = verified_body(
             resp,
+            "GET",
+            "/health",
             &test_args.ephemeral_public_key,
             &test_args.quorum_public_key,
         )
@@ -184,6 +243,8 @@ async fn test_echo() {
         assert_eq!(resp.status(), 200);
         let body = verified_body(
             resp,
+            "POST",
+            "/echo",
             &test_args.ephemeral_public_key,
             &test_args.quorum_public_key,
         )

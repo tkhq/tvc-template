@@ -255,14 +255,16 @@ async fn quorum_key_decrypt(
 mod tests {
     use super::*;
     use axum::body::Body;
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
     use http_body_util::BodyExt;
     use qos_p256::{P256Pair, P256Public};
+    use sha2::{Digest, Sha256};
     use std::sync::Arc;
     use tower::ServiceExt;
     use tvc_axum::ResponseSigningLayer;
 
-    const EPHEMERAL_SIGNATURE_HEADER: &str = "x-tvc-ephemeral-signature";
-    const QUORUM_SIGNATURE_HEADER: &str = "x-tvc-quorum-signature";
+    const SIGNATURE_COMPONENTS: &str = "(\"@method\" \"@path\" \"@status\" \"content-digest\")";
+    const SIGNATURE_ALG: &str = "ecdsa-p256-sha256";
 
     async fn body_string(body: Body) -> String {
         let bytes = body
@@ -284,8 +286,63 @@ mod tests {
         P256Public::from_bytes(&key.public_key().to_bytes()).expect("public key should decode")
     }
 
-    fn signing_payload(body: &[u8]) -> Vec<u8> {
-        format!(r#"{{"body":"{}"}}"#, qos_hex::encode(body)).into_bytes()
+    fn content_digest(body: &[u8]) -> String {
+        format!("sha-256=:{}:", STANDARD.encode(Sha256::digest(body)))
+    }
+
+    fn signature_input(label: &str, created: u64) -> String {
+        format!(
+            r#"{SIGNATURE_COMPONENTS};created={created};keyid="{label}";alg="{SIGNATURE_ALG}""#
+        )
+    }
+
+    fn signature_base(
+        method: &str,
+        path: &str,
+        status: StatusCode,
+        digest: &str,
+        label: &str,
+        created: u64,
+    ) -> Vec<u8> {
+        format!(
+            "\"@method\": {method}\n\"@path\": {path}\n\"@status\": {}\n\"content-digest\": {digest}\n\"@signature-params\": {}",
+            status.as_u16(),
+            signature_input(label, created)
+        )
+        .into_bytes()
+    }
+
+    fn header_str<'a>(response: &'a Response, name: &str) -> &'a str {
+        response
+            .headers()
+            .get(name)
+            .unwrap_or_else(|| panic!("{name} header should exist"))
+            .to_str()
+            .unwrap_or_else(|_| panic!("{name} header should be ascii"))
+    }
+
+    fn label_value<'a>(header: &'a str, label: &str) -> &'a str {
+        header
+            .split(", ")
+            .find_map(|value| value.strip_prefix(&format!("{label}=")))
+            .unwrap_or_else(|| panic!("{label} value should exist"))
+    }
+
+    fn created_from_signature_input(input: &str, label: &str) -> u64 {
+        let value = label_value(input, label);
+        let created = value
+            .strip_prefix(&format!(r#"{SIGNATURE_COMPONENTS};created="#))
+            .and_then(|value| value.split_once(';').map(|(created, _)| created))
+            .expect("created parameter should exist");
+        created.parse().expect("created should be a unix timestamp")
+    }
+
+    fn signature_bytes(signature_header: &str, label: &str) -> Vec<u8> {
+        let signature = label_value(signature_header, label)
+            .strip_prefix(':')
+            .and_then(|value| value.strip_suffix(':'))
+            .expect("signature should be an RFC byte sequence");
+        STANDARD.decode(signature).expect("signature should be base64")
     }
 
     fn signed_router_with_temp_keys() -> (Router, P256Public, P256Public) {
@@ -310,23 +367,20 @@ mod tests {
 
     async fn signed_body(
         response: Response,
+        method: &str,
+        path: &str,
         ephemeral_public_key: &P256Public,
         quorum_public_key: &P256Public,
     ) -> Vec<u8> {
-        let ephemeral_signature = response
-            .headers()
-            .get(EPHEMERAL_SIGNATURE_HEADER)
-            .expect("ephemeral signature header should exist")
-            .to_str()
-            .expect("ephemeral signature header should be ascii")
-            .to_owned();
-        let quorum_signature = response
-            .headers()
-            .get(QUORUM_SIGNATURE_HEADER)
-            .expect("quorum signature header should exist")
-            .to_str()
-            .expect("quorum signature header should be ascii")
-            .to_owned();
+        let status = response.status();
+        let digest = header_str(&response, "content-digest").to_owned();
+        let signature_input_header = header_str(&response, "signature-input").to_owned();
+        let signature_header = header_str(&response, "signature").to_owned();
+        assert!(!response.headers().contains_key("x-tvc-ephemeral-signature"));
+        assert!(!response.headers().contains_key("x-tvc-quorum-signature"));
+        assert!(!response.headers().contains_key("x-tvc-signature-timestamp"));
+        let created = created_from_signature_input(&signature_input_header, "ephemeral");
+        assert_eq!(created_from_signature_input(&signature_input_header, "quorum"), created);
         let body = response
             .into_body()
             .collect()
@@ -335,16 +389,18 @@ mod tests {
             .to_bytes()
             .to_vec();
 
-        let payload = signing_payload(&body);
-        let ephemeral_signature =
-            qos_hex::decode(&ephemeral_signature).expect("ephemeral signature should hex decode");
-        let quorum_signature =
-            qos_hex::decode(&quorum_signature).expect("quorum signature should hex decode");
+        assert_eq!(digest, content_digest(&body));
         ephemeral_public_key
-            .verify(&payload, &ephemeral_signature)
+            .verify(
+                &signature_base(method, path, status, &digest, "ephemeral", created),
+                &signature_bytes(&signature_header, "ephemeral"),
+            )
             .expect("ephemeral response signature should verify");
         quorum_public_key
-            .verify(&payload, &quorum_signature)
+            .verify(
+                &signature_base(method, path, status, &digest, "quorum", created),
+                &signature_bytes(&signature_header, "quorum"),
+            )
             .expect("quorum response signature should verify");
 
         body
@@ -541,7 +597,14 @@ mod tests {
             .expect("failed to execute request");
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = signed_body(response, &ephemeral_public_key, &quorum_public_key).await;
+        let body = signed_body(
+            response,
+            "GET",
+            "/health",
+            &ephemeral_public_key,
+            &quorum_public_key,
+        )
+        .await;
         let json: serde_json::Value =
             serde_json::from_slice(&body).expect("response is not valid JSON");
         assert_eq!(json["status"], "healthy");
@@ -562,7 +625,14 @@ mod tests {
             .expect("failed to execute request");
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = signed_body(response, &ephemeral_public_key, &quorum_public_key).await;
+        let body = signed_body(
+            response,
+            "POST",
+            "/echo",
+            &ephemeral_public_key,
+            &quorum_public_key,
+        )
+        .await;
         assert_eq!(body, b"hello echo");
     }
 

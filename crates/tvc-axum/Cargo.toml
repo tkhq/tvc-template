@@ -10,11 +10,12 @@ workspace = true
 
 [dependencies]
 axum = { workspace = true, features = ["http1", "tokio"] }
+base64 = { workspace = true }
 http-body-util = { workspace = true }
-qos_hex = { workspace = true }
 qos_json = { workspace = true }
 qos_p256 = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
+sha2 = { workspace = true }
 tower = { workspace = true }
 
 [dev-dependencies]

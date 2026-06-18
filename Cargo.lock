@@ -615,10 +615,12 @@ name = "e2e"
 version = "0.2.0"
 dependencies = [
  "assert_cmd",
+ "base64",
  "qos_hex",
  "qos_p256",
  "reqwest",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
 ]
@@ -991,6 +993,7 @@ name = "helloworld"
 version = "0.2.0"
 dependencies = [
  "axum",
+ "base64",
  "clap",
  "http-body-util",
  "metrics",
@@ -1001,6 +1004,7 @@ dependencies = [
  "rand 0.9.2",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tower",
  "tower-http",
@@ -2959,11 +2963,12 @@ name = "tvc-axum"
 version = "0.2.0"
 dependencies = [
  "axum",
+ "base64",
  "http-body-util",
- "qos_hex",
  "qos_json",
  "qos_p256",
  "serde",
+ "sha2",
  "tokio",
  "tower",
 ]
