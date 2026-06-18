@@ -3,7 +3,7 @@ use crate::response::AppError;
 use axum::{
     Json, Router,
     body::Body,
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -14,18 +14,25 @@ use qos_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tower_http::trace::TraceLayer;
+use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 /// CoinGecko simple-price endpoint for the current Bitcoin price in USD.
 const COINGECKO_BTC_PRICE_URL: &str =
     "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd";
+
+/// Upper bound on a single CoinGecko request. Without this the request can hang
+/// indefinitely inside the enclave's verified egress, in which case the proxy in
+/// front of the app times out and returns a bare `error code: 502` — hiding the
+/// JSON error below. Failing fast lets the app surface a descriptive error.
+const COINGECKO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Shared application state.
 #[derive(Clone)]
 pub struct AppState {
     ephemeral_key_handle: EphemeralKeyHandle<String>,
     quorum_key_handle: QuorumKeyHandle,
-    coingecko_client: reqwest::Client,
+    http_client: reqwest::Client,
 }
 
 impl AppState {
@@ -35,22 +42,22 @@ impl AppState {
         ephemeral_key_handle: EphemeralKeyHandle<String>,
         quorum_key_handle: QuorumKeyHandle,
     ) -> Self {
-        Self::new_with_coingecko_client(
+        Self::new_with_http_client(
             ephemeral_key_handle,
             quorum_key_handle,
-            coingecko_client(),
+            http_client(),
         )
     }
 
-    fn new_with_coingecko_client(
+    fn new_with_http_client(
         ephemeral_key_handle: EphemeralKeyHandle<String>,
         quorum_key_handle: QuorumKeyHandle,
-        coingecko_client: reqwest::Client,
+        http_client: reqwest::Client,
     ) -> Self {
         Self {
             ephemeral_key_handle,
             quorum_key_handle,
-            coingecko_client,
+            http_client,
         }
     }
 }
@@ -64,10 +71,12 @@ impl Default for AppState {
     }
 }
 
-fn coingecko_client() -> reqwest::Client {
+fn http_client() -> reqwest::Client {
     match reqwest::Client::builder()
         .use_rustls_tls()
         .user_agent(concat!("tvc-helloworld/", env!("CARGO_PKG_VERSION")))
+        .timeout(COINGECKO_TIMEOUT)
+        .connect_timeout(COINGECKO_TIMEOUT)
         .build()
     {
         Ok(client) => client,
@@ -106,6 +115,11 @@ struct RandomAppProofResponse {
 }
 
 #[derive(Deserialize)]
+struct VerifiedTlsGetParams {
+    url: String,
+}
+
+#[derive(Deserialize)]
 struct QuorumKeyEncryptRequest {
     plaintext: String,
 }
@@ -139,10 +153,18 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/time", get(time))
         .route("/echo", post(echo))
         .route("/btc_price", get(btc_price))
+        .route("/verified_tls_get", get(verified_tls_get))
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            // Log every request and its response at INFO. The defaults emit at
+            // DEBUG, which is invisible under the default `info` env filter.
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .on_request(DefaultOnRequest::new().level(Level::INFO))
+                .on_response(DefaultOnResponse::new().level(Level::INFO)),
+        )
         .with_state(state)
 }
 
@@ -170,15 +192,20 @@ async fn echo(body: Body) -> Response {
 }
 
 async fn btc_price(State(state): State<AppState>) -> Response {
-    let resp = match state.coingecko_client.get(COINGECKO_BTC_PRICE_URL).send().await {
+    let resp = match state.http_client.get(COINGECKO_BTC_PRICE_URL).send().await {
         Ok(resp) => resp,
         Err(e) => {
-            tracing::error!("coingecko request failed: {e}");
+            let kind = reqwest_error_kind(&e);
+            // `{e:?}` includes the underlying source chain (DNS/TLS/IO), which is
+            // far more useful than the `Display` form when diagnosing egress.
+            tracing::error!("coingecko request failed ({kind}): {e:?}");
             return (
                 StatusCode::BAD_GATEWAY,
                 axum::Json(json!({
                     "error": "failed to reach price provider",
+                    "failure_kind": kind,
                     "coingecko_error": e.to_string(),
+                    "coingecko_url": COINGECKO_BTC_PRICE_URL,
                 })),
             )
                 .into_response();
@@ -224,6 +251,125 @@ async fn btc_price(State(state): State<AppState>) -> Response {
             )
                 .into_response()
         }
+    }
+}
+
+/// Classify a `reqwest` failure into a short, stable label so clients and logs
+/// can tell a timeout apart from a connection or TLS failure without parsing the
+/// free-form error string.
+fn reqwest_error_kind(e: &reqwest::Error) -> &'static str {
+    if e.is_timeout() {
+        "timeout"
+    } else if e.is_connect() {
+        "connect"
+    } else if e.is_redirect() {
+        "redirect"
+    } else if e.is_decode() {
+        "decode"
+    } else if e.is_body() {
+        "body"
+    } else {
+        "other"
+    }
+}
+
+/// Maximum number of response body bytes echoed back by `/verified_tls_get`.
+/// Large responses are truncated so the JSON payload stays manageable.
+const VERIFIED_TLS_GET_MAX_BODY: usize = 64 * 1024;
+
+/// Fetch an arbitrary URL through the enclave's verified-TLS egress and report
+/// the outcome. Intended as a debugging aid for exercising egress against
+/// different hosts, e.g. `GET /verified_tls_get?url=google.com`.
+///
+/// A successful round-trip always returns `200 OK` with the upstream status in
+/// the `status` field, so the upstream's own status never masks the captured
+/// detail. Only a transport-level failure (connect/timeout/body) returns `502`.
+async fn verified_tls_get(
+    State(state): State<AppState>,
+    Query(params): Query<VerifiedTlsGetParams>,
+) -> Response {
+    // Default to https:// when the caller omits a scheme, so `?url=google.com`
+    // exercises the verified-TLS path rather than failing to parse.
+    let url = normalize_url(&params.url);
+
+    let resp = match state.http_client.get(&url).send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            let kind = reqwest_error_kind(&e);
+            tracing::error!("verified_tls_get request to {url} failed ({kind}): {e:?}");
+            return (
+                StatusCode::BAD_GATEWAY,
+                axum::Json(json!({
+                    "error": "request failed",
+                    "failure_kind": kind,
+                    "request_error": e.to_string(),
+                    "requested_url": url,
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let status = resp.status();
+    let final_url = resp.url().to_string();
+    let headers: serde_json::Map<String, serde_json::Value> = resp
+        .headers()
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.as_str().to_owned(),
+                json!(value.to_str().unwrap_or("<non-utf8 header value>")),
+            )
+        })
+        .collect();
+
+    let full_body = match resp.bytes().await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            let kind = reqwest_error_kind(&e);
+            tracing::error!("verified_tls_get failed reading body from {url} ({kind}): {e:?}");
+            return (
+                StatusCode::BAD_GATEWAY,
+                axum::Json(json!({
+                    "error": "failed to read response body",
+                    "failure_kind": kind,
+                    "request_error": e.to_string(),
+                    "requested_url": url,
+                    "final_url": final_url,
+                    "status": status.as_u16(),
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let truncated = full_body.len() > VERIFIED_TLS_GET_MAX_BODY;
+    let body_slice = &full_body[..full_body.len().min(VERIFIED_TLS_GET_MAX_BODY)];
+    // Bodies may be binary; render lossily so the response is always valid JSON.
+    let body = String::from_utf8_lossy(body_slice).into_owned();
+
+    (
+        StatusCode::OK,
+        axum::Json(json!({
+            "requested_url": url,
+            "final_url": final_url,
+            "status": status.as_u16(),
+            "headers": headers,
+            "body": body,
+            "body_truncated": truncated,
+        })),
+    )
+        .into_response()
+}
+
+/// Prepend `https://` when the caller passes a scheme-less host so bare inputs
+/// like `google.com` resolve to a valid URL.
+fn normalize_url(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.contains("://") {
+        trimmed.to_owned()
+    } else {
+        format!("https://{trimmed}")
     }
 }
 
@@ -345,7 +491,7 @@ mod tests {
             .to_hex_file(&quorum_key_path)
             .expect("failed to write quorum key");
 
-        let app = router_with_state(AppState::new_with_coingecko_client(
+        let app = router_with_state(AppState::new_with_http_client(
             EphemeralKeyHandle::new(
                 ephemeral_key_path
                     .to_str()
@@ -358,23 +504,23 @@ mod tests {
                     .expect("temp path should be utf8")
                     .to_string(),
             ),
-            coingecko_client(),
+            http_client(),
         ));
 
         (app, temp_dir)
     }
 
     #[test]
-    fn app_state_uses_supplied_coingecko_client() {
+    fn app_state_uses_supplied_http_client() {
         let client = reqwest::Client::new();
-        let state = AppState::new_with_coingecko_client(
+        let state = AppState::new_with_http_client(
             EphemeralKeyHandle::new("ephemeral.secret".to_string()),
             QuorumKeyHandle::new("quorum.secret".to_string()),
             client,
         );
 
         let request = state
-            .coingecko_client
+            .http_client
             .get(COINGECKO_BTC_PRICE_URL)
             .build()
             .expect("request should build");
@@ -549,6 +695,38 @@ mod tests {
         assert_eq!(response.status(), 200);
         let body = body_string(response.into_body()).await;
         assert_eq!(body, r#"{"foo":"bar"}"#);
+    }
+
+    #[test]
+    fn test_normalize_url_prepends_https() {
+        assert_eq!(normalize_url("google.com"), "https://google.com");
+    }
+
+    #[test]
+    fn test_normalize_url_preserves_existing_scheme() {
+        assert_eq!(normalize_url("http://example.com"), "http://example.com");
+        assert_eq!(normalize_url("https://example.com"), "https://example.com");
+    }
+
+    #[test]
+    fn test_normalize_url_trims_whitespace() {
+        assert_eq!(normalize_url("  google.com  "), "https://google.com");
+    }
+
+    #[tokio::test]
+    async fn verified_tls_get_requires_url_param() {
+        let app = router();
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/verified_tls_get")
+                    .body(Body::empty())
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]

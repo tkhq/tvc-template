@@ -1,5 +1,5 @@
 HOST ?= 127.0.0.1
-PORT ?= 44020
+PORT ?= 3000
 LOCAL_ENCLAVE_DIR ?= /tmp/tvc-template-local-enclave
 EPHEMERAL_FILE ?= $(LOCAL_ENCLAVE_DIR)/qos.ephemeral.key
 QUORUM_FILE ?= $(LOCAL_ENCLAVE_DIR)/qos.quorum.key

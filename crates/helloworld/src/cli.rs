@@ -10,7 +10,7 @@ pub struct Cli {
     pub host: String,
 
     /// Port to listen on
-    #[arg(long, default_value = "44020")]
+    #[arg(long, default_value = "3000")]
     pub port: u16,
 
     /// Path to the quorum key file
