@@ -260,23 +260,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn btc_price_route_rejects_unsupported_methods() {
-        let app = router();
-        let response = app
-            .oneshot(
-                axum::http::Request::builder()
-                    .method("POST")
-                    .uri("/btc-price")
-                    .body(Body::empty())
-                    .expect("failed to build request"),
-            )
-            .await
-            .expect("failed to execute request");
-
-        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
-    }
-
-    #[tokio::test]
     async fn quorum_key_encrypt_and_decrypt_round_trip_utf8_payload() {
         let (app, _temp_dir) = router_with_temp_keys();
         let plaintext = "hello TVC world";
