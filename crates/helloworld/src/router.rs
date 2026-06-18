@@ -1,6 +1,7 @@
 //! Router for the Hello World REST server
 use crate::handlers::{
-    echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt, random_app_proof, time,
+    btc_price, echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt, random_app_proof,
+    time,
 };
 use axum::{
     Router,
@@ -23,6 +24,7 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/hello_world", get(hello_world))
         .route("/time", get(time))
         .route("/echo", post(echo))
+        .route("/btc-price", get(btc_price))
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
@@ -255,6 +257,23 @@ mod tests {
         assert_eq!(response.status(), 200);
         let body = body_string(response.into_body()).await;
         assert_eq!(body, r#"{"foo":"bar"}"#);
+    }
+
+    #[tokio::test]
+    async fn btc_price_route_rejects_unsupported_methods() {
+        let app = router();
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/btc-price")
+                    .body(Body::empty())
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 
     #[tokio::test]
