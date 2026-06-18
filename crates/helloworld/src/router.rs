@@ -1,7 +1,7 @@
 //! Router for the Hello World REST server
 use crate::handlers::{
     btc_price, echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt, random_app_proof,
-    time,
+    raw_ip_check, time, tls_ip_check,
 };
 use axum::{
     Router,
@@ -25,6 +25,8 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/time", get(time))
         .route("/echo", post(echo))
         .route("/btc_price", get(btc_price))
+        .route("/diagnostics/raw_ip_check", get(raw_ip_check))
+        .route("/diagnostics/tls_ip_check", get(tls_ip_check))
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
@@ -263,6 +265,7 @@ mod tests {
     }
 
     #[tokio::test]
+<<<<<<< HEAD
     async fn btc_price_route_uses_snake_case() {
         let app = router().expect("failed to build router");
         let response = app
@@ -277,6 +280,26 @@ mod tests {
             .expect("failed to execute request");
 
         assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+=======
+    async fn diagnostics_routes_reject_unsupported_methods() {
+        let app = router();
+
+        for uri in ["/diagnostics/raw_ip_check", "/diagnostics/tls_ip_check"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method("POST")
+                        .uri(uri)
+                        .body(Body::empty())
+                        .expect("failed to build request"),
+                )
+                .await
+                .expect("failed to execute request");
+
+            assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+        }
+>>>>>>> f15f2ab (feat: add diagnostic endpoints)
     }
 
     #[tokio::test]

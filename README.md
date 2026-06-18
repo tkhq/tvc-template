@@ -37,6 +37,12 @@ hello
 $ curl localhost:44020/btc_price
 {"bitcoin_usd":64225.0}
 
+$ curl localhost:44020/diagnostics/raw_ip_check
+{"ok":true,"requested_url":"http://1.1.1.1/","upstream_status":301}
+
+$ curl localhost:44020/diagnostics/tls_ip_check
+{"ok":true,"requested_url":"https://1.1.1.1/","upstream_status":200}
+
 $ curl localhost:44020/metrics
 # HELP tvc_http_request_duration_ms HTTP request duration in milliseconds
 # TYPE tvc_http_request_duration_ms histogram
