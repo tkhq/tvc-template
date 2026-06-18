@@ -1,98 +1,14 @@
 //! Router for the Hello World REST server
-use crate::response::AppError;
+use crate::handlers::{
+    echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt, random_app_proof, time,
+};
 use axum::{
-    Json, Router,
-    body::Body,
-    extract::State,
-    http::StatusCode,
-    response::{IntoResponse, Response},
+    Router,
     routing::{get, post},
 };
-use qos_core::{
-    EPHEMERAL_KEY_FILE, QUORUM_FILE,
-    handles::{EphemeralKeyHandle, QuorumKeyHandle},
-};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tower_http::trace::TraceLayer;
 
-/// Shared application state.
-#[derive(Clone)]
-pub struct AppState {
-    ephemeral_key_handle: EphemeralKeyHandle<String>,
-    quorum_key_handle: QuorumKeyHandle,
-}
-
-impl AppState {
-    /// Create a new application state value.
-    #[must_use]
-    pub fn new(
-        ephemeral_key_handle: EphemeralKeyHandle<String>,
-        quorum_key_handle: QuorumKeyHandle,
-    ) -> Self {
-        Self {
-            ephemeral_key_handle,
-            quorum_key_handle,
-        }
-    }
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        Self::new(
-            EphemeralKeyHandle::new(EPHEMERAL_KEY_FILE.to_string()),
-            QuorumKeyHandle::new(QUORUM_FILE.to_string()),
-        )
-    }
-}
-
-#[derive(Serialize)]
-struct RandomNumberProofPayload {
-    // Additional metadata can be added here later if the proof needs stronger
-    // domain separation or audit context.
-    #[serde(with = "qos_json::string_or_numeric")]
-    random_number: u64,
-}
-
-#[derive(Serialize)]
-struct AppProof {
-    // The enclave's ephemeral public key used to generate the signature.
-    #[serde(with = "qos_hex::serde")]
-    public_key: Vec<u8>,
-    // The exact serialized payload is included so clients can verify the
-    // signature without extra deterministic serialization logic.
-    payload: String,
-    // The ephemeral key's signature over the payload.
-    #[serde(with = "qos_hex::serde")]
-    signature: Vec<u8>,
-}
-
-#[derive(Serialize)]
-struct RandomAppProofResponse {
-    payload: RandomNumberProofPayload,
-    proof: AppProof,
-}
-
-#[derive(Deserialize)]
-struct QuorumKeyEncryptRequest {
-    plaintext: String,
-}
-
-#[derive(Serialize)]
-struct QuorumKeyEncryptResponse {
-    #[serde(with = "qos_hex::serde")]
-    ciphertext: Vec<u8>,
-}
-
-#[derive(Deserialize)]
-struct QuorumKeyDecryptRequest {
-    ciphertext: String,
-}
-
-#[derive(Serialize)]
-struct QuorumKeyDecryptResponse {
-    plaintext: String,
-}
+pub use crate::state::AppState;
 
 /// Build the application router with all routes.
 pub fn router() -> Router {
@@ -113,104 +29,12 @@ pub fn router_with_state(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn health() -> impl IntoResponse {
-    axum::Json(json!({"status": "healthy"}))
-}
-
-async fn hello_world() -> impl IntoResponse {
-    axum::Json(json!({"message": "hello world"}))
-}
-
-async fn time() -> Response {
-    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(now) => (StatusCode::OK, axum::Json(json!({"time": now.as_secs()}))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(json!({"error": format!("system clock error: {e}")})),
-        )
-            .into_response(),
-    }
-}
-
-async fn echo(body: Body) -> Response {
-    Response::new(body)
-}
-
-async fn random_app_proof(
-    State(state): State<AppState>,
-) -> Result<Json<RandomAppProofResponse>, AppError> {
-    let random_number = rand::random::<u64>();
-    let proof_payload = RandomNumberProofPayload { random_number };
-
-    // QOS JSON is a deterministic serialization protocol with stricter rules
-    // than normal JSON. It is useful when you need canonical serialization for
-    // verifying signatures. We sign these exact bytes and return them in the response
-    // to make it easy for clients to verify the signature.
-    let payload_bytes = qos_json::to_vec(&proof_payload)
-        .map_err(|e| AppError::internal(format!("failed to serialize proof payload: {e}")))?;
-
-    let ephemeral_key = state
-        .ephemeral_key_handle
-        .get_ephemeral_key()
-        .map_err(|e| AppError::internal(format!("failed to load ephemeral key: {e}")))?;
-    let signature = ephemeral_key
-        .sign(&payload_bytes)
-        .map_err(|e| AppError::internal(format!("failed to sign proof payload: {e:?}")))?;
-    let payload = String::from_utf8(payload_bytes)
-        .map_err(|e| AppError::internal(format!("failed to encode proof payload: {e}")))?;
-
-    let response = RandomAppProofResponse {
-        payload: proof_payload,
-        proof: AppProof {
-            public_key: ephemeral_key.public_key().to_bytes(),
-            payload,
-            signature,
-        },
-    };
-
-    Ok(Json(response))
-}
-
-async fn quorum_key_encrypt(
-    State(state): State<AppState>,
-    Json(request): Json<QuorumKeyEncryptRequest>,
-) -> Result<Json<QuorumKeyEncryptResponse>, AppError> {
-    let quorum_key = state
-        .quorum_key_handle
-        .get_quorum_key()
-        .map_err(|e| AppError::internal(format!("failed to load quorum key: {e}")))?;
-    let ciphertext = quorum_key
-        .public_key()
-        .encrypt(request.plaintext.as_bytes())
-        .map_err(|e| AppError::internal(format!("failed to encrypt plaintext: {e:?}")))?;
-
-    Ok(Json(QuorumKeyEncryptResponse { ciphertext }))
-}
-
-async fn quorum_key_decrypt(
-    State(state): State<AppState>,
-    Json(request): Json<QuorumKeyDecryptRequest>,
-) -> Result<Json<QuorumKeyDecryptResponse>, AppError> {
-    let ciphertext = qos_hex::decode(&request.ciphertext)
-        .map_err(|e| AppError::bad_request(format!("invalid ciphertext hex: {e:?}")))?;
-    let quorum_key = state
-        .quorum_key_handle
-        .get_quorum_key()
-        .map_err(|e| AppError::internal(format!("failed to load quorum key: {e}")))?;
-    let plaintext = quorum_key
-        .decrypt(&ciphertext)
-        .map_err(|e| AppError::bad_request(format!("failed to decrypt ciphertext: {e:?}")))?;
-    let plaintext = String::from_utf8(plaintext.to_vec())
-        .map_err(|e| AppError::bad_request(format!("decrypted plaintext is not UTF-8: {e}")))?;
-
-    Ok(Json(QuorumKeyDecryptResponse { plaintext }))
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use axum::body::Body;
+    use axum::http::StatusCode;
     use http_body_util::BodyExt;
     use qos_core::handles::{EphemeralKeyHandle, QuorumKeyHandle};
     use qos_p256::{P256Pair, P256Public};
