@@ -11,15 +11,6 @@ use tracing::Level;
 
 pub use crate::state::AppState;
 
-/// Build the application router with all routes.
-///
-/// # Errors
-///
-/// Returns an error if the default key files cannot be decoded as P-256 key pairs.
-pub fn router() -> Result<Router, qos_p256::P256Error> {
-    Ok(router_with_state(AppState::try_default()?))
-}
-
 /// Build the application router with the given state.
 pub fn router_with_state(state: AppState) -> Router {
     Router::new()
@@ -47,7 +38,6 @@ mod tests {
     use axum::http::StatusCode;
     use http_body_util::BodyExt;
     use qos_p256::{P256Pair, P256Public};
-    use std::sync::Arc;
     use tower::ServiceExt;
 
     async fn body_string(body: Body) -> String {
@@ -63,7 +53,7 @@ mod tests {
         let ephemeral_key = P256Pair::generate().expect("failed to generate ephemeral key");
         let quorum_key = P256Pair::generate().expect("failed to generate quorum key");
 
-        router_with_state(AppState::new(Arc::new(ephemeral_key), Arc::new(quorum_key)))
+        router_with_state(AppState::from(ephemeral_key, quorum_key))
     }
 
     #[tokio::test]
