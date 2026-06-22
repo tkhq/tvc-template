@@ -12,7 +12,9 @@
 use qos_p256::P256Pair;
 use std::future::Future;
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
 
@@ -78,6 +80,36 @@ fn port_is_available(port: u16) -> bool {
 
 const HOST_IP: &str = "127.0.0.1";
 
+fn helloworld_binary() -> PathBuf {
+    if let Some(path) = option_env!("CARGO_BIN_EXE_helloworld") {
+        return PathBuf::from(path);
+    }
+
+    static BINARY: OnceLock<PathBuf> = OnceLock::new();
+    BINARY
+        .get_or_init(|| {
+            let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+            let status = Command::new(cargo)
+                .args(["build", "-p", "helloworld"])
+                .current_dir(&workspace_root)
+                .status()
+                .expect("failed to build helloworld binary");
+            assert!(status.success(), "failed to build helloworld binary");
+
+            let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| workspace_root.join("target"));
+            let binary_name = if cfg!(windows) {
+                "helloworld.exe"
+            } else {
+                "helloworld"
+            };
+            target_dir.join("debug").join(binary_name)
+        })
+        .clone()
+}
+
 /// Arguments passed to the `test` function in [`Builder::execute`].
 pub struct TestArgs {
     /// The base URL for the REST server (e.g. `http://127.0.0.1:12345`)
@@ -115,7 +147,7 @@ impl Builder {
         let host_port =
             find_free_port().expect("failed to find a free port after maximum search attempts");
 
-        let server_binary = assert_cmd::cargo::cargo_bin("helloworld");
+        let server_binary = helloworld_binary();
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let ephemeral_key_path = temp_dir.path().join("qos.ephemeral.key");
         let quorum_key_path = temp_dir.path().join("qos.quorum.key");

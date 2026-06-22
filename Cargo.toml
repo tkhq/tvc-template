@@ -38,4 +38,5 @@ tempfile = "3.23"
 qos_core = { version = "0.10.0", default-features = false }
 qos_hex = { version = "0.10.0", default-features = false }
 qos_json = { version = "0.10.0", default-features = false }
+qos_nsm = { git = "https://github.com/tkhq/qos.git", branch = "codex/configurable-attestation-root", default-features = false, features = ["mock"] }
 qos_p256 = { version = "0.10.0", default-features = false }

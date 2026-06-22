@@ -1,5 +1,7 @@
 use crate::{response::AppError, state::AppState};
 use axum::{Json, extract::State};
+use qos_core::protocol::services::boot::VersionedManifestEnvelope;
+use qos_nsm::types::{NsmRequest, NsmResponse};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
@@ -48,6 +50,58 @@ pub(crate) struct QuorumKeyDecryptRequest {
 #[derive(Serialize)]
 pub(crate) struct QuorumKeyDecryptResponse {
     plaintext: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AttestationManifestEnvelope {
+    #[serde(flatten)]
+    envelope: VersionedManifestEnvelope,
+    #[serde(with = "qos_hex::serde")]
+    manifest_hash: Vec<u8>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AttestationResponse {
+    manifest_envelope: AttestationManifestEnvelope,
+    #[serde(with = "qos_hex::serde")]
+    attestation_doc: Vec<u8>,
+}
+
+pub(crate) async fn attestation(
+    State(state): State<AppState>,
+) -> Result<Json<AttestationResponse>, AppError> {
+    let manifest_bytes = std::fs::read(&state.manifest_file)
+        .map_err(|e| AppError::internal(format!("failed to load manifest envelope: {e}")))?;
+    let manifest_envelope = VersionedManifestEnvelope::try_from_slice_compat(&manifest_bytes)
+        .map_err(|e| AppError::internal(format!("failed to decode manifest envelope: {e}")))?;
+    let manifest_hash = manifest_envelope.manifest_hash();
+    let ephemeral_key = state
+        .ephemeral_key_handle
+        .get_ephemeral_key()
+        .map_err(|e| AppError::internal(format!("failed to load ephemeral key: {e}")))?;
+
+    let nsm_response = state
+        .nsm_provider
+        .nsm_process_request(NsmRequest::Attestation {
+            user_data: Some(manifest_hash.to_vec()),
+            nonce: None,
+            public_key: Some(ephemeral_key.public_key().to_bytes()),
+        });
+    let NsmResponse::Attestation { document } = nsm_response else {
+        return Err(AppError::internal(format!(
+            "unexpected NSM response: {nsm_response:?}"
+        )));
+    };
+
+    Ok(Json(AttestationResponse {
+        manifest_envelope: AttestationManifestEnvelope {
+            envelope: manifest_envelope,
+            manifest_hash: manifest_hash.to_vec(),
+        },
+        attestation_doc: document,
+    }))
 }
 
 pub(crate) async fn random_app_proof(

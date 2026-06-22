@@ -17,6 +17,7 @@ metrics = { path = "../metrics" }
 qos_core = { workspace = true }
 qos_hex = { workspace = true, features = ["serde"] }
 qos_json = { workspace = true }
+qos_nsm = { workspace = true }
 rand = "0.9.1"
 serde = { version = "1.0", features = ["derive"] }
 

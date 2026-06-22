@@ -1,6 +1,7 @@
 //! Router for the Hello World REST server
 use crate::handlers::{
-    echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt, random_app_proof, time,
+    attestation, echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt,
+    random_app_proof, time,
 };
 use axum::{
     Router,
@@ -23,6 +24,7 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/hello_world", get(hello_world))
         .route("/time", get(time))
         .route("/echo", post(echo))
+        .route("/attestation", get(attestation))
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
@@ -43,7 +45,19 @@ mod tests {
     use axum::http::StatusCode;
     use http_body_util::BodyExt;
     use qos_core::handles::{EphemeralKeyHandle, QuorumKeyHandle};
+    use qos_core::protocol::services::boot::{
+        Manifest, ManifestEnvelope, ManifestSet, Namespace, NitroConfig, PatchSet, PivotConfig,
+        RestartPolicy, ShareSet, VersionedManifestEnvelope,
+    };
+    use qos_nsm::mock::{
+        DynamicMockNsm, MOCK_PCR0, MOCK_PCR1, MOCK_PCR2, MOCK_PCR3, MOCK_SECONDS_SINCE_EPOCH,
+        mock_root_certificate_der,
+    };
+    use qos_nsm::nitro::{
+        AWS_ROOT_CERT_PEM, attestation_doc_from_der, cert_from_pem, unsafe_attestation_doc_from_der,
+    };
     use qos_p256::{P256Pair, P256Public};
+    use std::sync::Arc;
     use tower::ServiceExt;
 
     async fn body_string(body: Body) -> String {
@@ -55,12 +69,56 @@ mod tests {
         String::from_utf8(bytes.to_vec()).expect("invalid utf8")
     }
 
-    fn router_with_temp_keys() -> (Router, tempfile::TempDir) {
+    fn sample_manifest_envelope(quorum_key: &P256Pair) -> VersionedManifestEnvelope {
+        VersionedManifestEnvelope::V1(ManifestEnvelope {
+            manifest: Manifest {
+                namespace: Namespace {
+                    name: "test-namespace".to_string(),
+                    nonce: 1,
+                    quorum_key: quorum_key.public_key().to_bytes(),
+                },
+                pivot: PivotConfig {
+                    hash: [9; 32],
+                    restart: RestartPolicy::Never,
+                    bridge_config: vec![],
+                    debug_mode: false,
+                    args: vec![],
+                },
+                manifest_set: ManifestSet {
+                    threshold: 0,
+                    members: vec![],
+                },
+                share_set: ShareSet {
+                    threshold: 0,
+                    members: vec![],
+                },
+                enclave: NitroConfig {
+                    pcr0: qos_hex::decode(MOCK_PCR0).expect("mock PCR0 should be hex"),
+                    pcr1: qos_hex::decode(MOCK_PCR1).expect("mock PCR1 should be hex"),
+                    pcr2: qos_hex::decode(MOCK_PCR2).expect("mock PCR2 should be hex"),
+                    pcr3: qos_hex::decode(MOCK_PCR3).expect("mock PCR3 should be hex"),
+                    aws_root_certificate: mock_root_certificate_der().to_vec(),
+                    qos_commit: "32747120".to_string(),
+                },
+                patch_set: PatchSet {
+                    threshold: 0,
+                    members: vec![],
+                },
+            },
+            manifest_set_approvals: vec![],
+            share_set_approvals: vec![],
+        })
+    }
+
+    fn router_with_temp_state(
+        nsm_provider: Arc<dyn qos_nsm::NsmProvider>,
+    ) -> (Router, tempfile::TempDir, P256Pair) {
         let ephemeral_key = P256Pair::generate().expect("failed to generate ephemeral key");
         let quorum_key = P256Pair::generate().expect("failed to generate quorum key");
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let ephemeral_key_path = temp_dir.path().join("ephemeral.secret");
         let quorum_key_path = temp_dir.path().join("quorum.secret");
+        let manifest_path = temp_dir.path().join("qos.manifest");
 
         ephemeral_key
             .to_hex_file(&ephemeral_key_path)
@@ -68,6 +126,14 @@ mod tests {
         quorum_key
             .to_hex_file(&quorum_key_path)
             .expect("failed to write quorum key");
+        let manifest_envelope = sample_manifest_envelope(&quorum_key);
+        std::fs::write(
+            &manifest_path,
+            manifest_envelope
+                .to_storage_vec()
+                .expect("manifest envelope should serialize"),
+        )
+        .expect("failed to write manifest");
 
         let app = router_with_state(AppState::new(
             EphemeralKeyHandle::new(
@@ -82,8 +148,19 @@ mod tests {
                     .expect("temp path should be utf8")
                     .to_string(),
             ),
+            manifest_path
+                .to_str()
+                .expect("temp path should be utf8")
+                .to_string(),
+            nsm_provider,
         ));
 
+        (app, temp_dir, ephemeral_key)
+    }
+
+    fn router_with_temp_keys() -> (Router, tempfile::TempDir) {
+        let (app, temp_dir, _ephemeral_key) =
+            router_with_temp_state(Arc::new(DynamicMockNsm::new()));
         (app, temp_dir)
     }
 
@@ -197,6 +274,115 @@ mod tests {
         public_key
             .verify(payload.as_bytes(), &signature)
             .expect("proof signature should verify");
+    }
+
+    #[tokio::test]
+    async fn returns_manifest_and_dynamic_attestation_doc() {
+        let (app, _temp_dir, ephemeral_key) =
+            router_with_temp_state(Arc::new(DynamicMockNsm::new()));
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/attestation")
+                    .body(Body::empty())
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_string(response.into_body()).await;
+        let json: serde_json::Value =
+            serde_json::from_str(&body).expect("response is not valid JSON");
+        let manifest_hash = qos_hex::decode(
+            json["manifestEnvelope"]["manifestHash"]
+                .as_str()
+                .expect("manifest hash should be a string"),
+        )
+        .expect("manifest hash should hex decode");
+        let attestation_doc = qos_hex::decode(
+            json["attestationDoc"]
+                .as_str()
+                .expect("attestation doc should be a string"),
+        )
+        .expect("attestation doc should hex decode");
+
+        assert!(json["manifestEnvelope"]["manifest"].is_object());
+        assert!(!attestation_doc.is_empty());
+        let doc = unsafe_attestation_doc_from_der(&attestation_doc)
+            .expect("attestation doc should decode");
+        assert_eq!(
+            doc.user_data.as_ref().map(|data| data.as_slice()),
+            Some(manifest_hash.as_slice())
+        );
+        assert_eq!(
+            doc.public_key
+                .as_ref()
+                .map(|public_key| public_key.as_slice()),
+            Some(ephemeral_key.public_key().to_bytes().as_slice())
+        );
+    }
+
+    #[tokio::test]
+    async fn verifies_mock_attestation_doc_against_mock_root() {
+        let (app, _temp_dir, _ephemeral_key) = router_with_temp_state(Arc::new(
+            DynamicMockNsm::new().with_mock_certificate_chain(),
+        ));
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/attestation")
+                    .body(Body::empty())
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_string(response.into_body()).await;
+        let json: serde_json::Value =
+            serde_json::from_str(&body).expect("response is not valid JSON");
+        let manifest_hash = qos_hex::decode(
+            json["manifestEnvelope"]["manifestHash"]
+                .as_str()
+                .expect("manifest hash should be a string"),
+        )
+        .expect("manifest hash should hex decode");
+        let attestation_doc = qos_hex::decode(
+            json["attestationDoc"]
+                .as_str()
+                .expect("attestation doc should be a string"),
+        )
+        .expect("attestation doc should hex decode");
+
+        let doc = attestation_doc_from_der(
+            &attestation_doc,
+            mock_root_certificate_der(),
+            MOCK_SECONDS_SINCE_EPOCH,
+        )
+        .expect("attestation doc should verify against mock root");
+        assert_eq!(
+            doc.user_data.as_ref().map(|data| data.as_slice()),
+            Some(manifest_hash.as_slice())
+        );
+        for (index, expected) in [
+            (0, MOCK_PCR0),
+            (1, MOCK_PCR1),
+            (2, MOCK_PCR2),
+            (3, MOCK_PCR3),
+        ] {
+            let expected = qos_hex::decode(expected).expect("mock PCR should be hex");
+            assert_eq!(
+                doc.pcrs.get(&index).map(AsRef::as_ref),
+                Some(expected.as_slice())
+            );
+        }
+
+        let aws_root = cert_from_pem(AWS_ROOT_CERT_PEM).expect("AWS root should decode");
+        assert!(
+            attestation_doc_from_der(&attestation_doc, &aws_root, MOCK_SECONDS_SINCE_EPOCH,)
+                .is_err()
+        );
     }
 
     #[tokio::test]

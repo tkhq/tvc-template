@@ -1,10 +1,9 @@
 //! Hello World REST server binary.
 
 use clap::Parser;
-use helloworld::cli::Cli;
-use helloworld::router::{self, AppState};
-use metrics::MetricsLayer;
-use qos_core::handles::{EphemeralKeyHandle, QuorumKeyHandle};
+use helloworld::{app, cli::Cli};
+use qos_nsm::NsmProvider;
+use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -16,21 +15,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let cli = Cli::parse();
+    let bind_addr = format!("{}:{}", cli.host, cli.port).parse()?;
+    let nsm_provider: Arc<dyn NsmProvider> = if cli.unsafe_mock_nsm {
+        Arc::new(qos_nsm::mock::DynamicMockNsm::new().with_mock_certificate_chain())
+    } else {
+        Arc::new(qos_nsm::Nsm)
+    };
 
-    let metrics_layer = MetricsLayer::builder().namespace("tvc").build()?;
-    let collector = metrics_layer.collector();
-
-    let app_state = AppState::new(
-        EphemeralKeyHandle::new(cli.ephemeral_file),
-        QuorumKeyHandle::new(cli.quorum_file),
-    );
-    let app = router::router_with_state(app_state)
-        .layer(metrics_layer)
-        .route("/metrics", metrics::handler(collector));
-
-    let addr = format!("{}:{}", cli.host, cli.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!("Server listening on {addr}");
-    axum::serve(listener, app).await?;
+    app::run(app::AppArgs {
+        bind_addr,
+        ephemeral_file: cli.ephemeral_file,
+        quorum_file: cli.quorum_file,
+        manifest_file: cli.manifest_file,
+        nsm_provider,
+    })
+    .await?;
     Ok(())
 }
