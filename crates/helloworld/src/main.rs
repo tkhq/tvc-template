@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_state = AppState::new(
         EphemeralKeyHandle::new(cli.ephemeral_file),
         QuorumKeyHandle::new(cli.quorum_file),
-    );
+    )?;
     let app = router::router_with_state(app_state)
         .layer(metrics_layer)
         .route("/metrics", metrics::handler(collector));

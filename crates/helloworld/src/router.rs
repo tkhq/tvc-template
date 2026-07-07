@@ -1,6 +1,7 @@
 //! Router for the Hello World REST server
 use crate::handlers::{
-    echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt, random_app_proof, time,
+    btc_price, echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt, random_app_proof,
+    time,
 };
 use axum::{
     Router,
@@ -12,8 +13,8 @@ use tracing::Level;
 pub use crate::state::AppState;
 
 /// Build the application router with all routes.
-pub fn router() -> Router {
-    router_with_state(AppState::default())
+pub fn router() -> Result<Router, reqwest::Error> {
+    Ok(router_with_state(crate::state::default_app_state()?))
 }
 
 /// Build the application router with the given state.
@@ -23,6 +24,7 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/hello_world", get(hello_world))
         .route("/time", get(time))
         .route("/echo", post(echo))
+        .route("/btc_price", get(btc_price))
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
@@ -69,27 +71,30 @@ mod tests {
             .to_hex_file(&quorum_key_path)
             .expect("failed to write quorum key");
 
-        let app = router_with_state(AppState::new(
-            EphemeralKeyHandle::new(
-                ephemeral_key_path
-                    .to_str()
-                    .expect("temp path should be utf8")
-                    .to_string(),
-            ),
-            QuorumKeyHandle::new(
-                quorum_key_path
-                    .to_str()
-                    .expect("temp path should be utf8")
-                    .to_string(),
-            ),
-        ));
+        let app = router_with_state(
+            AppState::new(
+                EphemeralKeyHandle::new(
+                    ephemeral_key_path
+                        .to_str()
+                        .expect("temp path should be utf8")
+                        .to_string(),
+                ),
+                QuorumKeyHandle::new(
+                    quorum_key_path
+                        .to_str()
+                        .expect("temp path should be utf8")
+                        .to_string(),
+                ),
+            )
+            .expect("failed to build app state"),
+        );
 
         (app, temp_dir)
     }
 
     #[tokio::test]
     async fn test_health() {
-        let app = router();
+        let app = router().expect("failed to build router");
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -109,7 +114,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_hello_world() {
-        let app = router();
+        let app = router().expect("failed to build router");
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -129,7 +134,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_time() {
-        let app = router();
+        let app = router().expect("failed to build router");
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -201,7 +206,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_echo_text() {
-        let app = router();
+        let app = router().expect("failed to build router");
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -220,7 +225,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_echo_empty() {
-        let app = router();
+        let app = router().expect("failed to build router");
         let response = app
             .oneshot(
                 axum::http::Request::builder()
@@ -239,7 +244,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_echo_json() {
-        let app = router();
+        let app = router().expect("failed to build router");
         let response = app
             .oneshot(
                 axum::http::Request::builder()
