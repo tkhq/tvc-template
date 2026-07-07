@@ -1,7 +1,7 @@
 //! Router for the Hello World REST server
 use crate::handlers::{
-    btc_price, echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt, random_app_proof,
-    time,
+    btc_price, download, echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt,
+    random_app_proof, time,
 };
 use axum::{
     Router,
@@ -20,6 +20,7 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/time", get(time))
         .route("/echo", post(echo))
         .route("/btc_price", get(btc_price))
+        .route("/download", get(download))
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
