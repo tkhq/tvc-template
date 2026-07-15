@@ -9,6 +9,11 @@
     clippy::panic
 )]
 
+use qos_nsm::{
+    NsmProvider,
+    mock::MockNsm,
+    types::{NsmRequest, NsmResponse},
+};
 use qos_p256::P256Pair;
 use std::future::Future;
 use std::net::TcpListener;
@@ -82,6 +87,14 @@ const HOST_IP: &str = "127.0.0.1";
 pub struct TestArgs {
     /// The base URL for the REST server (e.g. `http://127.0.0.1:12345`)
     pub base_url: String,
+    /// The generated ephemeral public key bound into the NSM attestation document.
+    pub ephemeral_public_key: Vec<u8>,
+    /// The NSM attestation document for this local test run.
+    pub attestation_doc: Vec<u8>,
+    /// The root certificate authority to trust for the attestation document.
+    pub attestation_root_ca_der: Vec<u8>,
+    /// The attestation verification time, in seconds since the Unix epoch.
+    pub attestation_time_seconds: u64,
 }
 
 /// Test harness builder.
@@ -119,14 +132,29 @@ impl Builder {
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let ephemeral_key_path = temp_dir.path().join("qos.ephemeral.key");
         let quorum_key_path = temp_dir.path().join("qos.quorum.key");
-        P256Pair::generate()
-            .expect("failed to generate ephemeral key")
+        let ephemeral_key = P256Pair::generate().expect("failed to generate ephemeral key");
+        let ephemeral_public_key = ephemeral_key.public_key().to_bytes();
+        ephemeral_key
             .to_hex_file(&ephemeral_key_path)
             .expect("failed to write ephemeral key");
         P256Pair::generate()
             .expect("failed to generate quorum key")
             .to_hex_file(&quorum_key_path)
             .expect("failed to write quorum key");
+        let nsm = MockNsm::new();
+        let attestation_doc = match nsm.nsm_process_request(NsmRequest::Attestation {
+            user_data: None,
+            nonce: None,
+            public_key: Some(ephemeral_public_key.clone()),
+        }) {
+            NsmResponse::Attestation { document } => document,
+            response => panic!("unexpected NSM attestation response: {response:?}"),
+        };
+        let attestation_root_ca_der = nsm.attestation_root_ca_der();
+        let attestation_time_seconds = nsm
+            .timestamp_ms()
+            .expect("failed to read NSM attestation timestamp")
+            / 1_000;
 
         let _server_process: ChildWrapper = Command::new(server_binary)
             .arg("--host")
@@ -145,7 +173,13 @@ impl Builder {
 
         let base_url = format!("http://{HOST_IP}:{host_port}");
 
-        let test_args = TestArgs { base_url };
+        let test_args = TestArgs {
+            base_url,
+            ephemeral_public_key,
+            attestation_doc,
+            attestation_root_ca_der,
+            attestation_time_seconds,
+        };
 
         test(test_args).await;
     }

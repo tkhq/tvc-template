@@ -40,7 +40,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tempfile = "3.23"
 ureq = { version = "2.9", default-features = false }
 url = { version = "2.5.7", default-features = false } 
-qos_core = { version = "0.10.0", default-features = false }
-qos_hex = { version = "0.10.0", default-features = false }
-qos_json = { version = "0.10.0", default-features = false }
-qos_p256 = { version = "0.10.0", default-features = false }
+qos_core = { version = "0.12.2", default-features = false }
+qos_hex = { version = "0.12.2", default-features = false }
+qos_json = { version = "0.12.2", default-features = false }
+qos_nsm = { version = "0.12.2", default-features = false }
+qos_p256 = { version = "0.12.2", default-features = false }

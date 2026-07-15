@@ -1,6 +1,7 @@
 #![allow(missing_docs, clippy::unwrap_used)]
 
 use e2e::TestArgs;
+use qos_nsm::nitro;
 use qos_p256::P256Public;
 
 #[tokio::test]
@@ -108,6 +109,24 @@ async fn test_quorum_key_encrypt_decrypt() {
         assert_eq!(resp.status(), 200);
         let json: serde_json::Value = resp.json().await.unwrap();
         assert_eq!(json["plaintext"], plaintext);
+    }
+    e2e::Builder::new().execute(test).await;
+}
+
+#[tokio::test]
+async fn test_nsm_attestation_document() {
+    async fn test(test_args: TestArgs) {
+        let doc = nitro::attestation_doc_from_der(
+            &test_args.attestation_doc,
+            &test_args.attestation_root_ca_der,
+            test_args.attestation_time_seconds,
+        )
+        .unwrap();
+
+        assert_eq!(
+            doc.public_key.unwrap().as_ref(),
+            test_args.ephemeral_public_key
+        );
     }
     e2e::Builder::new().execute(test).await;
 }
