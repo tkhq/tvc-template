@@ -2,8 +2,12 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use e2e::TestArgs;
+use qos_core::protocol::services::boot::VersionedManifestEnvelope;
+use qos_nsm::mock::{MOCK_ROOT_CERT_DER, MOCK_SECONDS_SINCE_EPOCH};
+use qos_nsm::nitro;
 use qos_p256::P256Public;
 use sha2::{Digest, Sha256};
+use tvc_axum::{ATTESTATION_DOC_HEADER, MANIFEST_ENVELOPE_HEADER};
 
 const SIGNATURE_COMPONENTS: &str = "(\"@method\" \"@path\" \"@status\" \"content-digest\")";
 const SIGNATURE_ALG: &str = "ecdsa-p256-sha256";
@@ -112,6 +116,88 @@ async fn verified_body(
         .expect("quorum response signature should verify");
 
     body
+}
+
+fn header_str(resp: &reqwest::Response, name: &str) -> String {
+    resp.headers()
+        .get(name)
+        .unwrap_or_else(|| panic!("{name} header should exist"))
+        .to_str()
+        .unwrap_or_else(|_| panic!("{name} header should be ascii"))
+        .to_owned()
+}
+
+/// Verify the full trust chain for a response: manifest envelope ->
+/// attestation document -> response signature. The ephemeral public key is
+/// taken from the attestation document, never from the harness.
+#[tokio::test]
+async fn test_full_trust_chain() {
+    async fn test(test_args: TestArgs) {
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("{}/hello_world", test_args.base_url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // 1. The manifest envelope header carries the exact canonical bytes
+        // the server booted with.
+        let manifest_bytes = STANDARD
+            .decode(header_str(&resp, MANIFEST_ENVELOPE_HEADER))
+            .expect("manifest header should be base64");
+        assert_eq!(
+            manifest_bytes,
+            test_args
+                .manifest_envelope
+                .to_storage_vec()
+                .expect("manifest envelope should serialize")
+        );
+        let envelope = VersionedManifestEnvelope::try_from_slice_compat(&manifest_bytes)
+            .expect("manifest header should decode");
+
+        // 2. The attestation document verifies up to the NSM root and binds
+        // the manifest hash as user_data.
+        let attestation_bytes = STANDARD
+            .decode(header_str(&resp, ATTESTATION_DOC_HEADER))
+            .expect("attestation header should be base64");
+        let attestation_doc = nitro::attestation_doc_from_der(
+            &attestation_bytes,
+            MOCK_ROOT_CERT_DER,
+            MOCK_SECONDS_SINCE_EPOCH,
+        )
+        .expect("attestation doc should verify against the NSM root");
+        assert_eq!(
+            attestation_doc.user_data.as_deref().map(Vec::as_slice),
+            Some(envelope.manifest_hash().as_slice()),
+            "attestation user_data should be the manifest hash"
+        );
+
+        // 3. The ephemeral public key extracted from the attestation
+        // document verifies the response signature.
+        let attested_key_bytes = attestation_doc
+            .public_key
+            .expect("attestation doc should bind the ephemeral public key")
+            .into_vec();
+        let attested_key =
+            P256Public::from_bytes(&attested_key_bytes).expect("attested key should decode");
+
+        let status = resp.status();
+        let digest = header_str(&resp, "content-digest");
+        let signature_input_header = header_str(&resp, "signature-input");
+        let signature_header = header_str(&resp, "signature");
+        let created = created_from_signature_input(&signature_input_header, "ephemeral");
+        let body = resp.bytes().await.unwrap().to_vec();
+        assert_eq!(digest, content_digest(&body));
+
+        attested_key
+            .verify(
+                &signature_base("GET", "/hello_world", status, &digest, "ephemeral", created),
+                &signature_bytes(&signature_header, "ephemeral"),
+            )
+            .expect("ephemeral signature should verify with the attested key");
+    }
+    e2e::Builder::new().execute(test).await;
 }
 
 #[tokio::test]
