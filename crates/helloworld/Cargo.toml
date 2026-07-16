@@ -15,16 +15,25 @@ tracing-subscriber = { workspace = true }
 tower-http = { workspace = true }
 reqwest = { workspace = true }
 metrics = { path = "../metrics" }
-tvc-axum = { path = "../tvc-axum" }
+tvc-axum = { workspace = true }
 qos_core = { workspace = true }
 qos_hex = { workspace = true, features = ["serde"] }
 qos_json = { workspace = true }
+qos_nsm = { workspace = true }
 qos_p256 = { workspace = true }
 rand = "0.9.1"
 serde = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
 ureq = { workspace = true, features = ["json", "tls"] }
 url = { workspace = true, features = ["serde"] }
+
+[features]
+default = ["mock-nsm"]
+# Enables the `--mock-nsm` flag for running outside an enclave.
+# DO NOT USE IN PRODUCTION: the mock NSM signs attestation documents with a
+# publicly known test PKI. The production image builds with
+# `--no-default-features`, which excludes the mock entirely.
+mock-nsm = ["qos_nsm/mock"]
 
 [lints]
 workspace = true

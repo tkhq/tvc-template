@@ -14,7 +14,11 @@ base64 = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 serde_json = { workspace = true }
 reqwest = { version = "0.12", features = ["json"] }
+qos_core = { workspace = true }
 qos_hex = { workspace = true }
+qos_nsm = { workspace = true, features = ["mock"] }
 qos_p256 = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
+tvc-axum = { workspace = true }
+tvc-utils = { workspace = true }

@@ -9,6 +9,7 @@
     clippy::panic
 )]
 
+use qos_core::protocol::services::boot::VersionedManifestEnvelope;
 use qos_p256::{P256Pair, P256Public};
 use std::future::Future;
 use std::net::TcpListener;
@@ -115,6 +116,8 @@ pub struct TestArgs {
     pub ephemeral_public_key: P256Public,
     /// Public key corresponding to the quorum response-signing key.
     pub quorum_public_key: P256Public,
+    /// The manifest envelope the server booted with.
+    pub manifest_envelope: VersionedManifestEnvelope,
 }
 
 /// Test harness builder.
@@ -161,6 +164,18 @@ impl Builder {
             .to_hex_file(&quorum_key_path)
             .expect("failed to write quorum key");
 
+        // Write the manifest envelope the same way QOS does at boot so the
+        // server can attach it to signed responses.
+        let manifest_path = temp_dir.path().join("qos.manifest");
+        let manifest_envelope = tvc_utils::fake_manifest_envelope();
+        std::fs::write(
+            &manifest_path,
+            manifest_envelope
+                .to_storage_vec()
+                .expect("failed to serialize manifest envelope"),
+        )
+        .expect("failed to write manifest envelope");
+
         let _server_process: ChildWrapper = Command::new(server_binary)
             .arg("--host")
             .arg(HOST_IP)
@@ -170,6 +185,9 @@ impl Builder {
             .arg(&ephemeral_key_path)
             .arg("--quorum-file")
             .arg(&quorum_key_path)
+            .arg("--manifest-file")
+            .arg(&manifest_path)
+            .arg("--mock-nsm")
             .spawn()
             .expect("failed to spawn helloworld binary")
             .into();
@@ -182,6 +200,7 @@ impl Builder {
             base_url,
             ephemeral_public_key,
             quorum_public_key,
+            manifest_envelope,
         };
 
         test(test_args).await;
