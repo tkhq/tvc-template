@@ -33,4 +33,16 @@ impl AppState {
             http_client,
         }
     }
+
+    /// Return the loaded ephemeral key for response signing layers.
+    #[must_use]
+    pub fn ephemeral_key(&self) -> Arc<P256Pair> {
+        Arc::clone(&self.ephemeral_key)
+    }
+
+    /// Return the loaded quorum key for response signing layers.
+    #[must_use]
+    pub fn quorum_key(&self) -> Arc<P256Pair> {
+        Arc::clone(&self.quorum_key)
+    }
 }

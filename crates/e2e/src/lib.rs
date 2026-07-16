@@ -9,10 +9,13 @@
     clippy::panic
 )]
 
-use qos_p256::P256Pair;
+use qos_core::protocol::services::boot::VersionedManifestEnvelope;
+use qos_p256::{P256Pair, P256Public};
 use std::future::Future;
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
 
@@ -76,12 +79,45 @@ fn port_is_available(port: u16) -> bool {
     TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
+fn helloworld_binary() -> PathBuf {
+    static SERVER_BINARY: OnceLock<PathBuf> = OnceLock::new();
+
+    SERVER_BINARY
+        .get_or_init(|| {
+            if let Some(binary) = std::env::var_os("CARGO_BIN_EXE_helloworld") {
+                return PathBuf::from(binary);
+            }
+
+            let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+            let status = Command::new(cargo)
+                .args(["build", "-p", "helloworld"])
+                .status()
+                .expect("failed to build helloworld binary");
+            assert!(status.success(), "failed to build helloworld binary");
+
+            let mut binary = std::env::current_exe().expect("failed to get current test binary");
+            binary.pop();
+            if binary.ends_with("deps") {
+                binary.pop();
+            }
+            binary.push(format!("helloworld{}", std::env::consts::EXE_SUFFIX));
+            binary
+        })
+        .clone()
+}
+
 const HOST_IP: &str = "127.0.0.1";
 
 /// Arguments passed to the `test` function in [`Builder::execute`].
 pub struct TestArgs {
     /// The base URL for the REST server (e.g. `http://127.0.0.1:12345`)
     pub base_url: String,
+    /// Public key corresponding to the ephemeral response-signing key.
+    pub ephemeral_public_key: P256Public,
+    /// Public key corresponding to the quorum response-signing key.
+    pub quorum_public_key: P256Public,
+    /// The manifest envelope the server booted with.
+    pub manifest_envelope: VersionedManifestEnvelope,
 }
 
 /// Test harness builder.
@@ -100,10 +136,6 @@ impl Builder {
     /// Spawns the `helloworld` binary, waits for it to bind, then runs
     /// the provided test function with a [`TestArgs`] containing the base URL.
     ///
-    /// Note this test env builder relies on the `helloworld` binary already
-    /// being built and existing in the target directory. Run `cargo build`
-    /// from the workspace root before running integration tests.
-    ///
     /// # Panics
     ///
     /// Panics if `test` panics or the server binary cannot be spawned.
@@ -115,18 +147,34 @@ impl Builder {
         let host_port =
             find_free_port().expect("failed to find a free port after maximum search attempts");
 
-        let server_binary = assert_cmd::cargo::cargo_bin("helloworld");
+        let server_binary = helloworld_binary();
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let ephemeral_key_path = temp_dir.path().join("qos.ephemeral.key");
         let quorum_key_path = temp_dir.path().join("qos.quorum.key");
-        P256Pair::generate()
-            .expect("failed to generate ephemeral key")
+        let ephemeral_key = P256Pair::generate().expect("failed to generate ephemeral key");
+        let quorum_key = P256Pair::generate().expect("failed to generate quorum key");
+        let ephemeral_public_key = P256Public::from_bytes(&ephemeral_key.public_key().to_bytes())
+            .expect("failed to decode ephemeral public key");
+        let quorum_public_key = P256Public::from_bytes(&quorum_key.public_key().to_bytes())
+            .expect("failed to decode quorum public key");
+        ephemeral_key
             .to_hex_file(&ephemeral_key_path)
             .expect("failed to write ephemeral key");
-        P256Pair::generate()
-            .expect("failed to generate quorum key")
+        quorum_key
             .to_hex_file(&quorum_key_path)
             .expect("failed to write quorum key");
+
+        // Write the manifest envelope the same way QOS does at boot so the
+        // server can attach it to signed responses.
+        let manifest_path = temp_dir.path().join("qos.manifest");
+        let manifest_envelope = tvc_utils::fake_manifest_envelope();
+        std::fs::write(
+            &manifest_path,
+            manifest_envelope
+                .to_storage_vec()
+                .expect("failed to serialize manifest envelope"),
+        )
+        .expect("failed to write manifest envelope");
 
         let _server_process: ChildWrapper = Command::new(server_binary)
             .arg("--host")
@@ -137,6 +185,9 @@ impl Builder {
             .arg(&ephemeral_key_path)
             .arg("--quorum-file")
             .arg(&quorum_key_path)
+            .arg("--manifest-file")
+            .arg(&manifest_path)
+            .arg("--mock-nsm")
             .spawn()
             .expect("failed to spawn helloworld binary")
             .into();
@@ -145,7 +196,12 @@ impl Builder {
 
         let base_url = format!("http://{HOST_IP}:{host_port}");
 
-        let test_args = TestArgs { base_url };
+        let test_args = TestArgs {
+            base_url,
+            ephemeral_public_key,
+            quorum_public_key,
+            manifest_envelope,
+        };
 
         test(test_args).await;
     }

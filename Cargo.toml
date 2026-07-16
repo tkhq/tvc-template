@@ -25,6 +25,7 @@ missing_docs = "warn"
 [workspace.dependencies]
 assert_cmd = "2.0"
 axum = { version = "0.8.8", default-features = false }
+base64 = "0.22"
 serde_json = "1.0.142"
 serde = { version = "1", default-features = false }
 tokio = { version = "1.47", default-features = false }
@@ -40,7 +41,12 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tempfile = "3.23"
 ureq = { version = "2.9", default-features = false }
 url = { version = "2.5.7", default-features = false } 
-qos_core = { version = "0.10.0", default-features = false }
-qos_hex = { version = "0.10.0", default-features = false }
-qos_json = { version = "0.10.0", default-features = false }
-qos_p256 = { version = "0.10.0", default-features = false }
+qos_core = { version = "0.12.2", default-features = false }
+qos_hex = { version = "0.12.2", default-features = false }
+qos_json = { version = "0.12.2", default-features = false }
+qos_nsm = { version = "0.12.2", default-features = false }
+qos_p256 = { version = "0.12.2", default-features = false }
+# TVC crates from the Turnkey rust-sdk.
+# TODO: switch to crates.io releases once tkhq/rust-sdk#199 merges and publishes.
+tvc-axum = { git = "https://github.com/tkhq/rust-sdk", branch = "zeke/tvc-axum-utils" }
+tvc-utils = { git = "https://github.com/tkhq/rust-sdk", branch = "zeke/tvc-axum-utils" }

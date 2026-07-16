@@ -1,11 +1,11 @@
 //! Response helpers.
 
 use axum::{
-    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
+use tvc_axum::QosJson;
 
 /// Application error response.
 pub struct AppError {
@@ -42,7 +42,7 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         (
             self.status,
-            Json(ErrorResponse {
+            QosJson(ErrorResponse {
                 error: self.message,
             }),
         )

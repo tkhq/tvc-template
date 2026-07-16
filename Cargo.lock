@@ -617,12 +617,18 @@ name = "e2e"
 version = "0.2.0"
 dependencies = [
  "assert_cmd",
+ "base64",
+ "qos_core",
  "qos_hex",
+ "qos_nsm",
  "qos_p256",
  "reqwest",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
+ "tvc-axum",
+ "tvc-utils",
 ]
 
 [[package]]
@@ -1003,6 +1009,7 @@ dependencies = [
  "qos_core",
  "qos_hex",
  "qos_json",
+ "qos_nsm",
  "qos_p256",
  "rand 0.9.2",
  "reqwest",
@@ -1014,6 +1021,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "tvc-axum",
  "ureq",
  "url",
 ]
@@ -1906,9 +1914,9 @@ dependencies = [
 
 [[package]]
 name = "qos_core"
-version = "0.10.0"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3963a3ebaaab998e7c094498b2e9029708c68c25aa525cae8d280e4418801dc"
+checksum = "fa990f83214ee02842afadcfedebbe3ae646ef46c0ca96cd65250139b2a48048"
 dependencies = [
  "aws-nitro-enclaves-nsm-api",
  "borsh",
@@ -1930,9 +1938,9 @@ dependencies = [
 
 [[package]]
 name = "qos_crypto"
-version = "0.10.0"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "659555a82c9556cb54244b52fdffe6375fefef12a47f665c676652613dbbc6ff"
+checksum = "d8fbad4f8f2987352af1b908542d3c31ec751c3e0f60a194090bc8b0bd86a457"
 dependencies = [
  "rand 0.9.2",
  "sha2",
@@ -1943,18 +1951,18 @@ dependencies = [
 
 [[package]]
 name = "qos_hex"
-version = "0.10.0"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f58906fca2c1aac1c8041f1477631f6cdcda98cde8781ed117d08d3f07782f8"
+checksum = "3f27f8efaf9f4ef36e5f6ee3622f231cd8f6c401a0275c8645b850d0058d6b88"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "qos_json"
-version = "0.10.0"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76d092be32d916472ed521a458880d868105166ce11d46cdf11436d5d4f0f14d"
+checksum = "063747127bb17931076a56360373d141667e0882756ff806137265423218088b"
 dependencies = [
  "qos_hex",
  "serde",
@@ -1964,9 +1972,9 @@ dependencies = [
 
 [[package]]
 name = "qos_nsm"
-version = "0.10.0"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aee77aaf95b9e5a77083072faa9aafdb3480f6b6e5ed4bc23e4722025c5fccd0"
+checksum = "fdad6d79bb77f27521d3f8c66f3d10d88308f1c719f7514664a5fa1fb3c8a6ca"
 dependencies = [
  "aws-nitro-enclaves-cose",
  "aws-nitro-enclaves-nsm-api",
@@ -1983,9 +1991,9 @@ dependencies = [
 
 [[package]]
 name = "qos_p256"
-version = "0.10.0"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00c77cb997977e9598c5e685dd90e557270fd0525542f029ffaece382dbe6434"
+checksum = "f0178515d461d211089da862860ccab75bbd7e24298fc691cedac5ba446165fb"
 dependencies = [
  "aes-gcm",
  "borsh",
@@ -3037,6 +3045,33 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "tvc-axum"
+version = "0.11.0"
+source = "git+https://github.com/tkhq/rust-sdk?branch=zeke%2Ftvc-axum-utils#b61568e8d9fcb1d39f217786cff69f4fe5bb6f64"
+dependencies = [
+ "axum",
+ "base64",
+ "http-body-util",
+ "qos_core",
+ "qos_json",
+ "qos_nsm",
+ "qos_p256",
+ "serde",
+ "sha2",
+ "thiserror 2.0.18",
+ "tower",
+]
+
+[[package]]
+name = "tvc-utils"
+version = "0.11.0"
+source = "git+https://github.com/tkhq/rust-sdk?branch=zeke%2Ftvc-axum-utils#b61568e8d9fcb1d39f217786cff69f4fe5bb6f64"
+dependencies = [
+ "qos_core",
+ "qos_p256",
+]
 
 [[package]]
 name = "typenum"

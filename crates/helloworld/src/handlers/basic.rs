@@ -4,21 +4,22 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde_json::json;
+use tvc_axum::QosJson;
 
 pub(crate) async fn health() -> impl IntoResponse {
-    axum::Json(json!({"status": "healthy"}))
+    QosJson(json!({"status": "healthy"}))
 }
 
 pub(crate) async fn hello_world() -> impl IntoResponse {
-    axum::Json(json!({"message": "hello world"}))
+    QosJson(json!({"message": "hello world"}))
 }
 
 pub(crate) async fn time() -> Response {
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(now) => (StatusCode::OK, axum::Json(json!({"time": now.as_secs()}))).into_response(),
+        Ok(now) => (StatusCode::OK, QosJson(json!({"time": now.as_secs()}))).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(json!({"error": format!("system clock error: {e}")})),
+            QosJson(json!({"error": format!("system clock error: {e}")})),
         )
             .into_response(),
     }

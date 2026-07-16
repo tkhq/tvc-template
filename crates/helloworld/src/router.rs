@@ -118,7 +118,11 @@ mod tests {
         let body = body_string(response.into_body()).await;
         let json: serde_json::Value =
             serde_json::from_str(&body).expect("response is not valid JSON");
-        assert!(json["time"].is_u64(), "time field should be a number");
+        json["time"]
+            .as_str()
+            .expect("time field should be a string")
+            .parse::<u64>()
+            .expect("time field should be a unix timestamp");
     }
 
     #[tokio::test]
@@ -140,8 +144,11 @@ mod tests {
             serde_json::from_str(&body).expect("response is not valid JSON");
 
         let random_number = json["payload"]["random_number"]
-            .as_u64()
-            .expect("random_number should be a JSON number");
+            .as_str()
+            .expect("random_number should be a string");
+        random_number
+            .parse::<u64>()
+            .expect("random_number should be a u64");
         let payload = json["proof"]["payload"]
             .as_str()
             .expect("proof payload should be a string");
@@ -149,7 +156,7 @@ mod tests {
             serde_json::from_str(payload).expect("payload is not valid JSON");
         assert_eq!(
             payload_json,
-            serde_json::json!({"random_number": random_number.to_string()})
+            serde_json::json!({"random_number": random_number})
         );
 
         let public_key = P256Public::from_bytes(

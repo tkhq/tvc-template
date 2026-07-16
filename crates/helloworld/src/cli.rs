@@ -20,4 +20,14 @@ pub struct Cli {
     /// Path to the ephemeral key file used for app proofs
     #[arg(long, default_value = qos_core::EPHEMERAL_KEY_FILE)]
     pub ephemeral_file: String,
+
+    /// Path to the manifest envelope file written by QOS at boot
+    #[arg(long, default_value = qos_core::MANIFEST_FILE)]
+    pub manifest_file: String,
+
+    /// Use a mock NSM instead of the Nitro Secure Module device.
+    /// DO NOT USE IN PRODUCTION: only for running outside an enclave.
+    #[cfg(feature = "mock-nsm")]
+    #[arg(long)]
+    pub mock_nsm: bool,
 }

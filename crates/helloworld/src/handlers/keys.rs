@@ -1,6 +1,7 @@
 use crate::{response::AppError, state::AppState};
 use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
+use tvc_axum::QosJson;
 
 #[derive(Serialize)]
 struct RandomNumberProofPayload {
@@ -52,7 +53,7 @@ pub(crate) struct QuorumKeyDecryptResponse {
 
 pub(crate) async fn random_app_proof(
     State(state): State<AppState>,
-) -> Result<Json<RandomAppProofResponse>, AppError> {
+) -> Result<QosJson<RandomAppProofResponse>, AppError> {
     let random_number = rand::random::<u64>();
     let proof_payload = RandomNumberProofPayload { random_number };
 
@@ -79,26 +80,26 @@ pub(crate) async fn random_app_proof(
         },
     };
 
-    Ok(Json(response))
+    Ok(QosJson(response))
 }
 
 pub(crate) async fn quorum_key_encrypt(
     State(state): State<AppState>,
     Json(request): Json<QuorumKeyEncryptRequest>,
-) -> Result<Json<QuorumKeyEncryptResponse>, AppError> {
+) -> Result<QosJson<QuorumKeyEncryptResponse>, AppError> {
     let ciphertext = state
         .quorum_key
         .public_key()
         .encrypt(request.plaintext.as_bytes())
         .map_err(|e| AppError::internal(format!("failed to encrypt plaintext: {e:?}")))?;
 
-    Ok(Json(QuorumKeyEncryptResponse { ciphertext }))
+    Ok(QosJson(QuorumKeyEncryptResponse { ciphertext }))
 }
 
 pub(crate) async fn quorum_key_decrypt(
     State(state): State<AppState>,
     Json(request): Json<QuorumKeyDecryptRequest>,
-) -> Result<Json<QuorumKeyDecryptResponse>, AppError> {
+) -> Result<QosJson<QuorumKeyDecryptResponse>, AppError> {
     let ciphertext = qos_hex::decode(&request.ciphertext)
         .map_err(|e| AppError::bad_request(format!("invalid ciphertext hex: {e:?}")))?;
     let plaintext = state
@@ -108,5 +109,5 @@ pub(crate) async fn quorum_key_decrypt(
     let plaintext = String::from_utf8(plaintext.to_vec())
         .map_err(|e| AppError::bad_request(format!("decrypted plaintext is not UTF-8: {e}")))?;
 
-    Ok(Json(QuorumKeyDecryptResponse { plaintext }))
+    Ok(QosJson(QuorumKeyDecryptResponse { plaintext }))
 }

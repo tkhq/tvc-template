@@ -3,6 +3,7 @@ PORT ?= 44020
 LOCAL_ENCLAVE_DIR ?= /tmp/tvc-template-local-enclave
 EPHEMERAL_FILE ?= $(LOCAL_ENCLAVE_DIR)/qos.ephemeral.key
 QUORUM_FILE ?= $(LOCAL_ENCLAVE_DIR)/qos.quorum.key
+MANIFEST_FILE ?= $(LOCAL_ENCLAVE_DIR)/qos.manifest
 
 .PHONY: all
 all: build
@@ -24,12 +25,13 @@ lint:
 	cargo clippy --version
 	cargo clippy --all-targets -- -D warnings
 
-# Generate keys to simulate QOS control.
+# Generate keys and a fake manifest envelope to simulate QOS control.
 .PHONY: local-keys
 local-keys:
 	mkdir -p $(LOCAL_ENCLAVE_DIR)
 	test -f $(EPHEMERAL_FILE) || openssl rand -hex 32 > $(EPHEMERAL_FILE)
 	test -f $(QUORUM_FILE) || openssl rand -hex 32 > $(QUORUM_FILE)
+	test -f $(MANIFEST_FILE) || cargo run -p e2e --bin fake_manifest -- $(MANIFEST_FILE)
 
 .PHONY: run
 run: local-keys
@@ -37,7 +39,9 @@ run: local-keys
 	--host $(HOST) \
 	--port $(PORT) \
 	--ephemeral-file $(EPHEMERAL_FILE) \
-	--quorum-file $(QUORUM_FILE)
+	--quorum-file $(QUORUM_FILE) \
+	--manifest-file $(MANIFEST_FILE) \
+	--mock-nsm
 
 out/helloworld/index.json: \
 	Cargo.lock Cargo.toml rust-toolchain.toml $(shell find images/helloworld crates -type f ! -path '*/target/*')
