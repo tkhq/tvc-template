@@ -7,12 +7,13 @@ rust-version.workspace = true
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-axum = { workspace = true, features = ["http1", "tokio", "json", "macros"] }
+axum = { workspace = true, features = ["http1", "tokio", "json", "macros", "query"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tower-http = { workspace = true }
+reqwest = { workspace = true }
 metrics = { path = "../metrics" }
 tvc-axum = { path = "../tvc-axum" }
 qos_core = { workspace = true }
@@ -20,13 +21,14 @@ qos_hex = { workspace = true, features = ["serde"] }
 qos_json = { workspace = true }
 qos_p256 = { workspace = true }
 rand = "0.9.1"
-serde = { version = "1.0", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+sha2 = { workspace = true }
+ureq = { workspace = true, features = ["json", "tls"] }
+url = { workspace = true, features = ["serde"] }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-base64 = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 http-body-util = { workspace = true }
-sha2 = { workspace = true }

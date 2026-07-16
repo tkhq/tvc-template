@@ -4,6 +4,8 @@ use clap::Parser;
 use helloworld::cli::Cli;
 use helloworld::router::{self, AppState};
 use metrics::MetricsLayer;
+use qos_p256::P256Pair;
+use std::io;
 use tracing_subscriber::EnvFilter;
 use tvc_axum::ResponseSigningLayer;
 
@@ -20,8 +22,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metrics_layer = MetricsLayer::builder().namespace("tvc").build()?;
     let collector = metrics_layer.collector();
 
-    let app_state = AppState::from_files(cli.ephemeral_file, cli.quorum_file)
-        .map_err(|e| std::io::Error::other(format!("failed to load application keys: {e:?}")))?;
+    let ephemeral_key = P256Pair::from_hex_file(cli.ephemeral_file)
+        .map_err(|e| io::Error::other(format!("failed to load ephemeral key: {e:?}")))?;
+    let quorum_key = P256Pair::from_hex_file(cli.quorum_file)
+        .map_err(|e| io::Error::other(format!("failed to load quorum key: {e:?}")))?;
+    let app_state = AppState::new(ephemeral_key, quorum_key)?;
     let ephemeral_key = app_state.ephemeral_key();
     let quorum_key = app_state.quorum_key();
     let app = router::router_with_state(app_state)
