@@ -1,4 +1,4 @@
-# SKILL.md — TVC App Template
+# AGENTS.md — TVC App Template
 
 You are an AI coding agent (Claude Code, Cursor, or similar) and your human has asked you to build or customize a Turnkey Verifiable Cloud (TVC) enclave application starting from this repo. Read this file end-to-end before touching code.
 
