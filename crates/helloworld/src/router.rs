@@ -1,7 +1,7 @@
 //! Router for the Hello World REST server
 use crate::handlers::{
-    btc_price, download, echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt,
-    random_app_proof, time,
+    btc_price, download, echo, health, hello_world, quorum_key_aes_decrypt, quorum_key_aes_encrypt,
+    quorum_key_decrypt, quorum_key_encrypt, random_app_proof, time,
 };
 use axum::{
     Router,
@@ -24,6 +24,8 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
+        .route("/quorum_key/aes_encrypt", post(quorum_key_aes_encrypt))
+        .route("/quorum_key/aes_decrypt", post(quorum_key_aes_decrypt))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
@@ -286,6 +288,118 @@ mod tests {
                     .uri("/quorum_key/decrypt")
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"ciphertext":"not-hex"}"#))
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn quorum_key_aes_encrypt_and_decrypt_round_trip_utf8_payload() {
+        let app = router_with_generated_keys();
+        let plaintext = "hello TVC AES world";
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/quorum_key/aes_encrypt")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(r#"{{"plaintext":"{plaintext}"}}"#)))
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_string(response.into_body()).await;
+        let json: serde_json::Value =
+            serde_json::from_str(&body).expect("response is not valid JSON");
+        let ciphertext = json["ciphertext"]
+            .as_str()
+            .expect("ciphertext should be a string");
+        qos_hex::decode(ciphertext).expect("ciphertext should be hex");
+
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/quorum_key/aes_decrypt")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(r#"{{"ciphertext":"{ciphertext}"}}"#)))
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_string(response.into_body()).await;
+        let json: serde_json::Value =
+            serde_json::from_str(&body).expect("response is not valid JSON");
+        assert_eq!(json["plaintext"], plaintext);
+    }
+
+    #[tokio::test]
+    async fn quorum_key_aes_decrypt_rejects_malformed_ciphertext_hex() {
+        let app = router_with_generated_keys();
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/quorum_key/aes_decrypt")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"ciphertext":"not-hex"}"#))
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn quorum_key_aes_decrypt_rejects_tampered_ciphertext() {
+        let app = router_with_generated_keys();
+        let plaintext = "tamper me if you can";
+
+        // Encrypt a legitimate payload.
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/quorum_key/aes_encrypt")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(r#"{{"plaintext":"{plaintext}"}}"#)))
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_string(response.into_body()).await;
+        let json: serde_json::Value =
+            serde_json::from_str(&body).expect("response is not valid JSON");
+        let ciphertext = json["ciphertext"]
+            .as_str()
+            .expect("ciphertext should be a string")
+            .to_string();
+
+        // Flip the final byte of the ciphertext (targets the GCM tag) so the
+        // AEAD authentication check fails on decrypt.
+        let mut bytes = qos_hex::decode(&ciphertext).expect("ciphertext should be hex");
+        let last = bytes.last_mut().expect("ciphertext should not be empty");
+        *last ^= 0x01;
+        let tampered = qos_hex::encode(&bytes);
+
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/quorum_key/aes_decrypt")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(r#"{{"ciphertext":"{tampered}"}}"#)))
                     .expect("failed to build request"),
             )
             .await

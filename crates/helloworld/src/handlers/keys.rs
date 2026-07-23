@@ -50,6 +50,27 @@ pub(crate) struct QuorumKeyDecryptResponse {
     plaintext: String,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct QuorumKeyAesEncryptRequest {
+    plaintext: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct QuorumKeyAesEncryptResponse {
+    #[serde(with = "qos_hex::serde")]
+    ciphertext: Vec<u8>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct QuorumKeyAesDecryptRequest {
+    ciphertext: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct QuorumKeyAesDecryptResponse {
+    plaintext: String,
+}
+
 pub(crate) async fn random_app_proof(
     State(state): State<AppState>,
 ) -> Result<Json<RandomAppProofResponse>, AppError> {
@@ -109,4 +130,48 @@ pub(crate) async fn quorum_key_decrypt(
         .map_err(|e| AppError::bad_request(format!("decrypted plaintext is not UTF-8: {e}")))?;
 
     Ok(Json(QuorumKeyDecryptResponse { plaintext }))
+}
+
+/// Symmetrically encrypt `plaintext` under the quorum key's AES-GCM-256
+/// secret.
+///
+/// Unlike [`quorum_key_encrypt`] (P-256 HPKE public-key encryption), this
+/// uses the namespace-stable AES-GCM-256 secret derived from the quorum key.
+/// Any enclave instance in the same namespace can decrypt what another
+/// instance encrypted, and the GCM tag provides integrity/tamper detection.
+/// This enables stateless self-contained tokens (e.g. encrypted authorization
+/// codes / session envelopes) that survive process boundaries.
+pub(crate) async fn quorum_key_aes_encrypt(
+    State(state): State<AppState>,
+    Json(request): Json<QuorumKeyAesEncryptRequest>,
+) -> Result<Json<QuorumKeyAesEncryptResponse>, AppError> {
+    let ciphertext = state
+        .quorum_key
+        .aes_gcm_256_encrypt(request.plaintext.as_bytes())
+        .map_err(|e| {
+            AppError::internal(format!("failed to AES-GCM-256 encrypt plaintext: {e:?}"))
+        })?;
+
+    Ok(Json(QuorumKeyAesEncryptResponse { ciphertext }))
+}
+
+/// Symmetrically decrypt a ciphertext envelope produced by
+/// [`quorum_key_aes_encrypt`]. Any tampering with the ciphertext will fail
+/// the GCM authentication tag and return a 400.
+pub(crate) async fn quorum_key_aes_decrypt(
+    State(state): State<AppState>,
+    Json(request): Json<QuorumKeyAesDecryptRequest>,
+) -> Result<Json<QuorumKeyAesDecryptResponse>, AppError> {
+    let ciphertext = qos_hex::decode(&request.ciphertext)
+        .map_err(|e| AppError::bad_request(format!("invalid ciphertext hex: {e:?}")))?;
+    let plaintext = state
+        .quorum_key
+        .aes_gcm_256_decrypt(&ciphertext)
+        .map_err(|e| {
+            AppError::bad_request(format!("failed to AES-GCM-256 decrypt ciphertext: {e:?}"))
+        })?;
+    let plaintext = String::from_utf8(plaintext.to_vec())
+        .map_err(|e| AppError::bad_request(format!("decrypted plaintext is not UTF-8: {e}")))?;
+
+    Ok(Json(QuorumKeyAesDecryptResponse { plaintext }))
 }

@@ -31,6 +31,22 @@ $ curl -X POST \
   localhost:44020/quorum_key/decrypt
 {"plaintext":"hello TVC world"}
 
+# Symmetric AES-GCM-256 under the namespace-stable quorum key secret.
+# Any instance in the namespace can decrypt what another instance encrypted.
+# The GCM tag provides integrity/tamper detection. Enables stateless
+# self-contained tokens (e.g. encrypted authorization codes / session envelopes).
+$ curl -X POST \
+  -H 'content-type: application/json' \
+  -d '{"plaintext":"hello TVC world"}' \
+  localhost:44020/quorum_key/aes_encrypt
+{"ciphertext":"..."}
+
+$ curl -X POST \
+  -H 'content-type: application/json' \
+  -d '{"ciphertext":"..."}' \
+  localhost:44020/quorum_key/aes_decrypt
+{"plaintext":"hello TVC world"}
+
 $ curl -X POST -d 'hello' localhost:44020/echo
 hello
 
