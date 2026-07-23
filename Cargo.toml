@@ -25,6 +25,7 @@ missing_docs = "warn"
 [workspace.dependencies]
 assert_cmd = "2.0"
 axum = { version = "0.8.8", default-features = false }
+base64 = { version = "0.22.1", default-features = false, features = ["std"] }
 serde_json = "1.0.142"
 serde = { version = "1", default-features = false }
 tokio = { version = "1.47", default-features = false }
@@ -35,9 +36,12 @@ tower-http = { version = "0.6", features = ["trace"] }
 http-body-util = "0.1"
 pin-project-lite = "0.2"
 prometheus = { version = "0.13", default-features = false }
+p256 = { version = "=0.13.2", default-features = false, features = ["ecdsa"] }
 sha2 = { version = "0.10", default-features = false }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tempfile = "3.23"
+turnkey_api_key_stamper = "0.12.0"
+turnkey_client = "0.12.0"
 ureq = { version = "2.9", default-features = false }
 url = { version = "2.5.7", default-features = false } 
 qos_core = { version = "0.10.0", default-features = false }

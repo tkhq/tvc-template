@@ -1,7 +1,7 @@
 //! Router for the Hello World REST server
 use crate::handlers::{
     btc_price, download, echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt,
-    random_app_proof, time,
+    random_app_proof, time, turnkey_sign_transaction,
 };
 use axum::{
     Router,
@@ -24,6 +24,7 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
+        .route("/turnkey/sign_transaction", post(turnkey_sign_transaction))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
@@ -39,9 +40,12 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::StatusCode;
+    use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
     use http_body_util::BodyExt;
+    use p256::ecdsa::{DerSignature, signature::Verifier as _};
     use qos_p256::{P256Pair, P256Public};
     use tower::ServiceExt;
+    use turnkey_api_key_stamper::SIGNATURE_SCHEME_P256;
 
     async fn body_string(body: Body) -> String {
         let bytes = body
@@ -53,12 +57,128 @@ mod tests {
     }
 
     fn router_with_generated_keys() -> Router {
+        router_with_generated_keys_and_quorum_public().0
+    }
+
+    fn router_with_generated_keys_and_quorum_public() -> (Router, P256Public) {
         let ephemeral_key = P256Pair::generate().expect("failed to generate ephemeral key");
         let quorum_key = P256Pair::generate().expect("failed to generate quorum key");
+        let quorum_public = quorum_key.public_key();
 
-        router_with_state(
-            AppState::new(ephemeral_key, quorum_key).expect("failed to build app state"),
+        (
+            router_with_state(
+                AppState::new(ephemeral_key, quorum_key).expect("failed to build app state"),
+            ),
+            quorum_public,
         )
+    }
+
+    #[tokio::test]
+    async fn turnkey_sign_transaction_returns_verifiable_quorum_stamp() {
+        let (app, quorum_public) = router_with_generated_keys_and_quorum_public();
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/turnkey/sign_transaction")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{
+                            "organizationId": "organization-id",
+                            "signWith": "0x1234",
+                            "type": "TRANSACTION_TYPE_ETHEREUM",
+                            "unsignedTransaction": "02f86c"
+                        }"#,
+                    ))
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_string(response.into_body()).await;
+        let response_json: serde_json::Value =
+            serde_json::from_str(&body).expect("response is not valid JSON");
+        let activity_body = response_json["activityBody"]
+            .as_str()
+            .expect("activityBody should be a string");
+        let activity: serde_json::Value =
+            serde_json::from_str(activity_body).expect("activityBody is not valid JSON");
+
+        assert_eq!(activity["type"], "ACTIVITY_TYPE_SIGN_TRANSACTION_V2");
+        assert!(
+            activity["timestampMs"]
+                .as_str()
+                .expect("timestampMs should be a string")
+                .parse::<u128>()
+                .is_ok(),
+            "timestampMs should be a decimal string"
+        );
+        assert_eq!(activity["organizationId"], "organization-id");
+        assert_eq!(
+            activity["parameters"],
+            serde_json::json!({
+                "signWith": "0x1234",
+                "unsignedTransaction": "02f86c",
+                "type": "TRANSACTION_TYPE_ETHEREUM"
+            })
+        );
+        assert!(activity["generateAppProofs"].is_null());
+
+        let stamp_bytes = BASE64_URL_SAFE_NO_PAD
+            .decode(
+                response_json["xStamp"]
+                    .as_str()
+                    .expect("xStamp should be a string"),
+            )
+            .expect("xStamp should be base64url without padding");
+        let stamp: serde_json::Value =
+            serde_json::from_slice(&stamp_bytes).expect("stamp should be valid JSON");
+        let compressed_public = quorum_public
+            .signing_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
+        assert_eq!(stamp["publicKey"], qos_hex::encode(&compressed_public));
+        assert_eq!(stamp["scheme"], SIGNATURE_SCHEME_P256);
+
+        let signature_bytes = qos_hex::decode(
+            stamp["signature"]
+                .as_str()
+                .expect("signature should be a string"),
+        )
+        .expect("signature should be hex");
+        let signature =
+            DerSignature::from_bytes(&signature_bytes).expect("signature should be DER encoded");
+        quorum_public
+            .signing_key()
+            .verify(activity_body.as_bytes(), &signature)
+            .expect("quorum signature should verify over the exact activityBody");
+    }
+
+    #[tokio::test]
+    async fn turnkey_sign_transaction_rejects_malformed_type() {
+        let app = router_with_generated_keys();
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/turnkey/sign_transaction")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{
+                            "organizationId": "organization-id",
+                            "signWith": "0x1234",
+                            "type": "ETHEREUM",
+                            "unsignedTransaction": "02f86c"
+                        }"#,
+                    ))
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
