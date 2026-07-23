@@ -8,6 +8,8 @@ rust-version.workspace = true
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 axum = { workspace = true, features = ["http1", "tokio", "json", "macros", "query"] }
+base64 = { workspace = true }
+p256 = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 serde_json = { workspace = true }
 tracing = { workspace = true }

@@ -1,7 +1,7 @@
 //! Router for the Hello World REST server
 use crate::handlers::{
     btc_price, download, echo, health, hello_world, quorum_key_decrypt, quorum_key_encrypt,
-    random_app_proof, time,
+    random_app_proof, sign_turnkey_transaction, time,
 };
 use axum::{
     Router,
@@ -24,6 +24,7 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/random_app_proof", get(random_app_proof))
         .route("/quorum_key/encrypt", post(quorum_key_encrypt))
         .route("/quorum_key/decrypt", post(quorum_key_decrypt))
+        .route("/sign_turnkey_transaction", post(sign_turnkey_transaction))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
@@ -292,5 +293,48 @@ mod tests {
             .expect("failed to execute request");
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn sign_turnkey_transaction_returns_activity_body_and_stamp() {
+        let app = router_with_generated_keys();
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/sign_turnkey_transaction")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{
+                            "organizationId":"org-123",
+                            "signWith":"0xabc0000000000000000000000000000000000001",
+                            "unsignedTransaction":"0xDEADBEEF",
+                            "timestampMs":1700000000000
+                        }"#,
+                    ))
+                    .expect("failed to build request"),
+            )
+            .await
+            .expect("failed to execute request");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_string(response.into_body()).await;
+        let response: serde_json::Value =
+            serde_json::from_str(&body).expect("response is not valid JSON");
+        let activity: serde_json::Value = serde_json::from_str(
+            response["activityBody"]
+                .as_str()
+                .expect("activityBody should be a string"),
+        )
+        .expect("activityBody is not valid JSON");
+
+        assert_eq!(activity["type"], "ACTIVITY_TYPE_SIGN_TRANSACTION_V2");
+        assert_eq!(activity["timestampMs"], "1700000000000");
+        assert_eq!(activity["parameters"]["unsignedTransaction"], "deadbeef");
+        assert!(
+            response["xStamp"]
+                .as_str()
+                .is_some_and(|stamp| !stamp.is_empty())
+        );
     }
 }

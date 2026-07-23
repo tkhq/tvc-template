@@ -25,6 +25,8 @@ missing_docs = "warn"
 [workspace.dependencies]
 assert_cmd = "2.0"
 axum = { version = "0.8.8", default-features = false }
+base64 = "0.22"
+p256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
 serde_json = "1.0.142"
 serde = { version = "1", default-features = false }
 tokio = { version = "1.47", default-features = false }

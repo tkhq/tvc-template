@@ -997,9 +997,11 @@ name = "helloworld"
 version = "0.2.0"
 dependencies = [
  "axum",
+ "base64",
  "clap",
  "http-body-util",
  "metrics",
+ "p256",
  "qos_core",
  "qos_hex",
  "qos_json",
