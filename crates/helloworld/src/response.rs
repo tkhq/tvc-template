@@ -36,6 +36,15 @@ impl AppError {
             message: message.into(),
         }
     }
+
+    /// Create a failed dependency error.
+    #[must_use]
+    pub fn failed_dependency(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FAILED_DEPENDENCY,
+            message: message.into(),
+        }
+    }
 }
 
 impl IntoResponse for AppError {
