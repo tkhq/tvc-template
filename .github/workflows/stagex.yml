@@ -6,6 +6,7 @@ on:
       - "v*.*.*"
     branches:
       - "main"
+      - "richard-test"
     paths:
       - ".github/**"
       - "Cargo.lock"
@@ -34,10 +35,7 @@ jobs:
       contents: read
       packages: write
     env:
-      tags: >-
-        ${{ github.ref == format('refs/heads/{0}', 'main') && 'latest' || '' }}
-        ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || '' }}
-        ${{ github.event_name == 'push' && github.ref_name || '' }}
+      tags: richard-test
     strategy:
       matrix:
         target:
