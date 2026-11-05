@@ -6,6 +6,7 @@ on:
       - "v*.*.*"
     branches:
       - "main"
+      - "richard/test"
     paths:
       - ".github/**"
       - "Cargo.lock"
