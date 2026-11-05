@@ -17,6 +17,7 @@ pub fn router_with_state(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/hello_world", get(hello_world))
+        .route("/hello", get(hello_world))
         .route("/time", get(time))
         .route("/echo", post(echo))
         .route("/btc_price", get(btc_price))
