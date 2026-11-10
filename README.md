@@ -37,6 +37,9 @@ hello
 $ curl localhost:44020/btc_price
 {"bitcoin_usd":64225.0,"source":"coingecko"}
 
+$ curl localhost:44020/check_ip
+{"ip":"203.0.113.7","source":"https://checkip.amazonaws.com"}
+
 $ curl localhost:44020/metrics
 # HELP tvc_http_request_duration_ms HTTP request duration in milliseconds
 # TYPE tvc_http_request_duration_ms histogram

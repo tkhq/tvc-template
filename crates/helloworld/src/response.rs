@@ -37,6 +37,15 @@ impl AppError {
         }
     }
 
+    /// Create a bad gateway error.
+    #[must_use]
+    pub fn bad_gateway(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_GATEWAY,
+            message: message.into(),
+        }
+    }
+
     /// Create a failed dependency error.
     #[must_use]
     pub fn failed_dependency(message: impl Into<String>) -> Self {
