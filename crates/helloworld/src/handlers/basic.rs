@@ -1,5 +1,6 @@
 use axum::{
     body::Body,
+    extract::Query,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -9,8 +10,15 @@ pub(crate) async fn health() -> impl IntoResponse {
     axum::Json(json!({"status": "healthy"}))
 }
 
-pub(crate) async fn hello_world() -> impl IntoResponse {
+pub(crate) async fn hello_world() -> axum::Json<serde_json::Value> {
     axum::Json(json!({"message": "hello world"}))
+}
+
+pub(crate) async fn hello(Query(name): Query<Option<String>>) -> axum::Json<serde_json::Value> {
+    let Some(name) = name else {
+        return hello_world().await;
+    };
+    axum::Json(json!({ "message": format!("hello {name}") }))
 }
 
 pub(crate) async fn time() -> Response {
